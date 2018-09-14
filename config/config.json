@@ -1,0 +1,4 @@
+{
+  "use_idf": "true", "idf_base_count": 1000, "log_base": 10,
+  "tag_weights": [{"NOUN": 1.0, "PROPN": 1.0, "VERB": 1.0, "ADJ": 0.8, "ADV": 0.4}, {"не_PART": 1.0}]
+}

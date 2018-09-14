@@ -1,19 +1,14 @@
-from ufal.udpipe import Model, Pipeline
-from collections import defaultdict
-from bs4 import BeautifulSoup
+from itertools import chain
+from time import time
 
 import numpy as np
 
-def read_paraphrases(infile):
-    with open(infile, "r", encoding="utf-8") as fin:
-        soup = BeautifulSoup(fin.read(), "lxml")
-    paraphrases = soup.find_all("paraphrase")
-    pairs, targets = [], []
-    for elem in paraphrases:
-        first, second, target = elem.find_all(attrs={"name": ["text_1", "text_2", "class"]})
-        pairs.append([first.text, second.text])
-        targets.append(int(target.text))
-    return pairs, targets
+import pymorphy2
+import russian_tagsets.converters as tag_converters
+from ufal_udpipe import Pipeline
+
+from lemmatize_ud_with_pymorphy import are_compatible_tags
+
 
 def make_tag(s):
     if s == "_":
@@ -125,9 +120,10 @@ class SyntaxTreeGraph:
         case = tag.get("Case")
         return case in ["Nom", "Acc", "Gen"]
 
-def prettify_UD_output(s, attach_single_root=False):
+def prettify_UD_output(s, attach_single_root=False, has_header=True):
     lines = s.split("\n")
-    state = 0
+    start_state = 0 if has_header else 1
+    state = start_state
     answer, curr_sent = [], []
     for line in lines:
         if state == 0:
@@ -140,53 +136,119 @@ def prettify_UD_output(s, attach_single_root=False):
             state = 1
         elif state == 1:
             if line == "":
-                answer.append(curr_sent)
-                curr_sent, state = [], 0
+                if len(curr_sent) > 0:
+                    answer.append(curr_sent)
+                curr_sent, state = [], start_state
                 continue
-            line_parse = line.split("\t")
-            for i in [0, 6]:
-                line_parse[i] = int(line_parse[i])
             curr_sent.append(line.split("\t"))
-    if curr_sent != []:
+    if len(curr_sent) > 0:
         answer.append(curr_sent)
     if attach_single_root:
         start_offsets = np.cumsum([len(x) for x in answer])
-        for i, elem in enumerate(answer[1:], 1):
+        for offset, elem in zip(start_offsets, answer[1:]):
             for line_parse in elem:
-                line_parse[0] += start_offsets[i-1]
-                line_parse[6] += start_offsets[i-1]
+                line_parse[0] = str(int(line_parse[0]) + offset)
+                if line_parse[6] != '0' and line_parse[6] != "_":
+                    line_parse[6] = str(int(line_parse[6]) + offset)
     return answer
 
 
-model = Model.load("russian-syntagrus-ud-2.0-170801.udpipe")
-pipeline = Pipeline(model, "tokenize", Pipeline.DEFAULT, Pipeline.DEFAULT, "conllu")
+def UD_list_to_str(sent):
+    return "\n".join("\t".join(elem) for elem in sent)
 
-pairs, targets = read_paraphrases("paraphraser/paraphrases_train.xml")
-phrases = [phrase for pair in pairs for phrase in pair]
 
-parses = []
-with open("parses.out", "w", encoding="utf8") as fout:
-    for i, phrase in enumerate(phrases[:20], 1):
-        if i % 1000 == 0:
-            print("{} phrases parsed".format(i))
-        phrase = "\n".join(phrase.split(":"))
-        if phrase[-1] not in ".?!":
-            phrase += "."
-        parse = prettify_UD_output(pipeline.process(phrase))[0]
-        fout.write("\n".join("\t".join(elem[:8]) for elem in parse) + "\n\n")
-        parses.append(parse)
-parse_data = []
-for parse in parses:
-    parse_data.append(SyntaxTreeGraph(parse))
-for j, elem in enumerate(parse_data):
-    # indexes = elem.get_indexes()
-    # print(j, end=" ")
-    # for key in ["subj", "verb", "obj"]:
-    #     for index in indexes[key]:
-    #         # print(j, key, index, parses[j][index-1][1])
-    #         print("{}:{}".format(key, parses[j][index-1][1]), end=" ")
-    # print("")
-    phrase_data = elem.make_subject_types()
-    for label, elem in zip(phrase_data, parses[j]):
-        print("{}:{}".format(label, elem[1]), end=" ")
-    print("")
+def split_by_colons(sent):
+    colon_indexes = [i for i, elem in enumerate(sent) if elem[1] == ":"]
+    colon_indexes = [-1] + colon_indexes + [len(sent) - 1]
+    answer = []
+    for j, start in enumerate(colon_indexes[:-1]):
+        end = colon_indexes[j+1]
+        curr_phrase = sent[start+1:end+1]
+        if j >= 1:
+            for index, elem in enumerate(curr_phrase):
+                elem[0] = str(index+1)
+        answer.append(curr_phrase)
+    return answer
+
+def make_pos_and_feats(tag):
+    splitted = tag.split(",", maxsplit=1)
+    if len(splitted) == 1:
+        pos, feats = splitted[0], "_"
+    else:
+        pos, feats = splitted
+    return pos, feats
+
+
+class MixedUDPreprocessor:
+
+    UD_FIELD_INDEXES = {"word": 1, "lemma": 2, "pos": 3, "feats": 5, "head": 6, "rel": 7}
+
+    def __init__(self, model, tagger, batch_size=32):
+        self.tokenizer = Pipeline(model, "tokenize", Pipeline.NONE, Pipeline.NONE, "conllu")
+        self.tagger = tagger
+        self.lemmatizer = pymorphy2.MorphAnalyzer()
+        self.converter = tag_converters.converter('opencorpora-int', 'ud20')
+        self.parser = Pipeline(model, "conllu", Pipeline.NONE, Pipeline.DEFAULT, "conllu")
+        self.batch_size = batch_size
+
+    def process(self, sents, fields_to_return=None):
+        if fields_to_return is None:
+            fields_to_return = ["all"]
+        t_last = time()
+        UD_sents = [prettify_UD_output(self.tokenizer.process(sent), attach_single_root=True)[0]
+                    for sent in sents]
+        t = time()
+        print("Tokenizing: {:.2f}".format(t - t_last))
+        t_last = t
+        word_sents = [[elem[1] for elem in sent] for sent in UD_sents]
+        tag_sents = []
+        for start in range(0, len(word_sents), self.batch_size):
+            end = start + self.batch_size
+            tag_sents.extend(self.tagger(word_sents[start:end]))
+        t = time()
+        print("Tagging: {:.2f}".format(t - t_last))
+        t_last = t
+        lemma_sents = [[self._make_lemma(word, tag) for word, tag in zip(word_sent, tag_sent)]
+                       for word_sent, tag_sent in zip(word_sents, tag_sents)]
+        t = time()
+        print("Lemmatizing: {:.2f}".format(t - t_last))
+        t_last = t
+        for i, (tag_sent, lemma_sent) in enumerate(zip(tag_sents, lemma_sents)):
+            for j, (tag, lemma) in enumerate(zip(tag_sent, lemma_sent)):
+                pos, feats = make_pos_and_feats(tag)
+                for index, value in zip([3, 5, 2], [pos, feats, lemma]):
+                    UD_sents[i][j][index] = value
+        for i, sent in enumerate(UD_sents):
+            UD_sents[i] = split_by_colons(sent)
+        sents_to_parse = ["\n\n".join(UD_list_to_str(elem) for elem in sent) for sent in UD_sents]
+        t = time()
+        print("Preparing to syntax parse: {:.2f}".format(t - t_last))
+        t_last = t
+        parse_sents = [list(chain.from_iterable(prettify_UD_output(
+            self.parser.process(sent), has_header=False, attach_single_root=True)))
+                       for sent in sents_to_parse]
+        t = time()
+        print("Parsing syntax: {:.2f}".format(t - t_last))
+        t_last = t
+        answer = []
+        for key in fields_to_return:
+            if key == "all":
+                answer.append(parse_sents)
+                continue
+            index = self.UD_FIELD_INDEXES.get(key)
+            if index is None:
+                answer.append(None)
+            else:
+                answer.append([[word_parse[index] for word_parse in elem] for elem in parse_sents])
+        return answer
+
+
+    def _make_lemma(self, word, tag):
+        parses = self.lemmatizer.parse(word)
+        for parse in parses:
+            curr_tag = str(parse.tag)
+            curr_lemma = parse.normal_form
+            curr_ud_tag = self.converter(curr_tag)
+            if are_compatible_tags(tag, curr_ud_tag):
+                return curr_lemma
+        return parses[0].normal_form
