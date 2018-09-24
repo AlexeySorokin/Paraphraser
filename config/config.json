@@ -1,4 +1,9 @@
 {
-  "use_idf": "true", "idf_base_count": 1000, "log_base": 10,
-  "tag_weights": [{"NOUN": 1.0, "PROPN": 1.0, "VERB": 1.0, "ADJ": 0.8, "ADV": 0.4}, {"не_PART": 1.0}]
+  "embedder": {
+    "use_idf": "true", "idf_base_count": 1000, "log_base": 10,
+    "tag_weights": [{"NOUN": 1.0, "PROPN": 1.0, "VERB": 1.0, "ADJ": 0.8, "ADV": 0.4}, {"не_PART": 1.0}]
+  },
+  "network": {"layers": 2, "margin": 0.1, "activation": "tanh"},
+  "train": {"epochs": 20, "batch_size": 16, "validation_split": 0.2,
+            "early_stopping": {"patience": 5}, "save_path": "model_syntax_tanh_2.hdf5"}
 }

@@ -1,8 +1,12 @@
 import os
+import getopt
+import sys
+
 import ujson as json
 from scipy.spatial.distance import cosine
-import keras.layers as kl
-import keras
+from sklearn.metrics import accuracy_score, f1_score
+# import keras.layers as kl
+from keras.callbacks import *
 
 from ufal_udpipe import Model
 from deeppavlov.models.embedders.fasttext_embedder import FasttextEmbedder
@@ -11,15 +15,17 @@ from deeppavlov.core.commands.infer import build_model_from_config
 
 from read import *
 from work import *
-from embedders import TfIdfEmbedder
+from network import *
+from embedders import *
 
 PARAPHRASE_TRAIN_PATH = "paraphraser/paraphrases_train.xml"
 PARAPHRASE_TEST_PATH = "paraphraser/paraphrases_gold.xml"
 # EMBEDDINGS_PATH = "/home/alexeysorokin/data/Data/Fasttext/cc.ru.300.bin"
-EMBEDDINGS_PATH = "/home/alexeysorokin/data/Data/DeepPavlov Embeddings/ft_native_300_ru_wiki_lenta_lower_case.bin"
+EMBEDDINGS_PATH = "/cephfs/home/sorokin/data/embeddings/ft_native_300_ru_wiki_lenta_lower_case.bin"
 # EMBEDDINGS_PATH = "/home/alexeysorokin/data/Data/DeepPavlov Embeddings/ft_native_300_ru_wiki_lenta_lemmatize.bin"
-COUNTS_PATH = "/home/alexeysorokin/data/Data/frequencies/Taiga_freq_lemmas.txt"
-CONFIG_PATH = [os.path.join("config", x) for x in sorted(os.listdir("config")) if x.startswith("config_")]
+EMBEDDINGS_DIM = 300
+COUNTS_PATH = "../data/frequencies/Taiga_freq_lemmas.txt"
+CONFIG_PATH = [os.path.join("config", x) for x in sorted(os.listdir("config")) if x.startswith("config")]
 TAG_CONFIG_PATH = "config/pos_config.json"
 FROM_PARSES = False
 TRAIN_SAVE_PATH = "paraphraser/parsed_paraphrases_train.xml"
@@ -38,11 +44,11 @@ def read_data(infile, from_parses=False, save_file=None):
     if from_parses:
         pairs, data, targets = read_parsed_paraphrase_file(infile)
     else:
-        # pairs, targets = read_paraphrases(infile)
+        pairs, targets = read_paraphrases(infile)
         # pairs = [["ЦУП установил связь с грузовым кораблем \"Прогресс\"",
         #           "Связь с космическим кораблем \"Прогресс\" восстановлена"]]
         # targets = [1]
-        # targets = (np.array(targets) >= 0).astype("int")
+        targets = (np.array(targets) >= 0).astype("int")
         data = ud_processor.process(list(chain.from_iterable(pairs)), UD_MODES)
         if save_file is not None:
             save_data(save_file, pairs, targets, data)
@@ -61,28 +67,11 @@ def save_data(outfile, pairs, targets, data):
     return
 
 
-def make_data(infile, embedder, from_parses=False, save_file=None):
+def make_data(infile, embedder, use_svo=False, from_parses=False, save_file=None):
     pairs,  (parses, words, lemmas, tags), targets = read_data(infile, from_parses, save_file)
-    sent_embeddings = embedder(lemmas, tags)
+    sent_embeddings = embedder(parses) if use_svo else embedder(lemmas, tags)
     X = [sent_embeddings[::2], sent_embeddings[1::2]]
     return pairs, X, targets
-
-
-def build_network(dim, layers=2, activation="tanh"):
-    first = kl.Input(shape=(dim,))
-    second = kl.Input(shape=(dim,))
-    inputs = [first, second]
-
-    for i in range(layers):
-        first = kl.Dense(dim, activation=activation)(first)
-        second = kl.Dense(dim, activation=activation)(second)
-
-    to_scorer = kl.Concatenate(axis=1)([first, second])
-    score = kl.Dense(1, activation="sigmoid")(to_scorer)
-    model = keras.Model(inputs, score)
-    model.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
-    print(model.summary())
-    return model
 
 
 def dump_analysis(pairs, distances, targets):
@@ -120,41 +109,147 @@ def analyze_scores(scores, targets, test_scores, test_targets):
             if curr_F1 > best_F1:
                 best_F1, best_index, test_F1 = curr_F1, index, curr_test_F1
             # elif best_index == index - 1:
-            #     print("Best F1: {:.2f}, test F1: {:.2f}, threshold: {:.3f}".format(
-            #         100 * best_F1, 100 *test_F1, scores[index-1]))
+                # print("Best F1: {:.2f}, test F1: {:.2f}, threshold: {:.3f}".format(
+                    # 100 * best_F1, 100 *test_F1, scores[index-1]))
         # if (curr_score_level < 100 and score == score_levels[curr_score_level]
-        #         and (index == m-1 or scores[index+1] > score)):
-        #     print("threshold: {:.3f}, F1: {:.2f}, test F1: {:.2f}".format(
-        #         score, 100 * curr_F1, 100 * test_F1))
-        #     curr_score_level += 1
+                # and (index == m-1 or scores[index+1] > score)):
+            # print("threshold: {:.3f}, F1: {:.2f}, test F1: {:.2f}".format(
+                # score, 100 * curr_F1, 100 * test_F1))
+            # print(TP, FN, FP, TN)
+            # curr_score_level += 1
     print("Threshold: {:.3f}, Train F1: {:.2f}, Test F1: {:.2f}".format(
         scores[best_index], 100 * best_F1, 100 * test_F1))
-    return
+    return scores[best_index]
 
+    
+def make_train_params(params):
+    if params is None:
+        return dict()
+    params = params.copy()
+    callbacks, save_path = [], None
+    if "early_stopping" in params:
+        callbacks.append(EarlyStopping(**params.pop("early_stopping")))
+    if "save_path" in params:
+        save_path = params.pop("save_path")
+        callbacks.append(ModelCheckpoint(
+            save_path, save_weights_only=True, save_best_only=True))
+    params["callbacks"] = callbacks
+    return params, save_path
+    
+def measure_quality(y_true, y_pred):
+    y_pred_binary = (y_pred >= 0.0)
+    # print(y_true[:10], y_pred_binary[:10])
+    return f1_score(y_true, y_pred_binary), accuracy_score(y_true, y_pred_binary)
+
+
+def reshape_svo_embeddings(data):
+    return np.sum(np.reshape(data, (data.shape[0], 3, -1)), axis=1)
+    
+    
+SHORT_OPTS = "S:T:pn:"    
+    
 if __name__ == "__main__":
 
+    np.set_printoptions(precision=3)
+    np.random.seed(189)
+    opts, args = getopt.getopt(sys.argv[1:], SHORT_OPTS)
+    
+    vectors_save_file, targets_save_file, use_svo = None, None, False
+    trials = 1
+    for opt, val in opts:
+        if opt == "-S":
+            vectors_save_file = val
+        elif opt == "-T":
+            targets_save_file = val
+        elif opt == "-p":
+            use_svo = True
+        elif opt == "-n":
+            trials = int(val)
+    print("Reading counts...")
     word_counts = read_counts(COUNTS_PATH, 1, 2)
+    print("Reading embeddings...")
     word_embedder = FasttextEmbedder(EMBEDDINGS_PATH, dim=300)
 
     # tagger = build_model_from_config(find_config("morpho_ru_syntagrus_train_pymorphy"))
+    # print("Tagger built")
     # ud_model = Model.load("russian-syntagrus-ud-2.0-170801.udpipe")
+    # print("UD Model loaded")
     # ud_processor = MixedUDPreprocessor(ud_model, tagger)
     for config_path in CONFIG_PATH:
-        print("{:<24}".format(config_path.split("/")[-1]), end="\t")
+        # print("{:<24}".format(config_path.split("/")[-1]), end="\t")
         with open(config_path, "r", encoding="utf8") as fin:
-            embedder_params = json.load(fin)
-            if "tag_weights" in embedder_params:
-                tag_weights = embedder_params["tag_weights"][1]
-                tag_weights = {tuple(key.split("_")): value for key, value in tag_weights.items()}
-        embedder = TfIdfEmbedder(word_embedder, word_counts, **embedder_params)
+            config_params = json.load(fin)
+        embedder_params = config_params.get("embedder", dict())
+        if "tag_weights" in embedder_params:
+            tag_weights = embedder_params["tag_weights"][1]
+            tag_weights = {tuple(key.split("_")): value for key, value in tag_weights.items()}
+        Embedder = SVOFreqPosEmbedder if use_svo else FreqPosEmbedder
+        embedder = Embedder(word_embedder, word_counts, **embedder_params)
 
-    # X_train, y_train = make_data(PARAPHRASE_TRAIN_PATH, embedder,
-    #                              from_parses=FROM_PARSES, save_file=TRAIN_SAVE_PATH)
-        pairs_train, X_train, y_train = make_data(TRAIN_SAVE_PATH, embedder, from_parses=True)
-        distances = np.array([cosine(first, second) for first, second in zip(*X_train)])
-        pairs_test, X_test, y_test = make_data(TEST_SAVE_PATH, embedder, from_parses=True)
-        test_distances = np.array([cosine(first, second) for first, second in zip(*X_test)])
-        analyze_scores(distances, y_train, test_distances, y_test)
+        # pairs_train, X_train, y_train = make_data(PARAPHRASE_TRAIN_PATH, embedder,
+                                                  # from_parses=FROM_PARSES, save_file=TRAIN_SAVE_PATH)
+        pairs_train, X_train, y_train =\
+            make_data(TRAIN_SAVE_PATH, embedder, use_svo=use_svo, from_parses=True)
+        if vectors_save_file is not None:
+            with open(vectors_save_file, "w") as fout:
+                for first, second in zip(*X_train):
+                    fout.write("{}\n".format(",".join("{:.2f}".format(x) for x in first)))
+                    fout.write("{}\n".format(",".join("{:.2f}".format(x) for x in second)))
+        if targets_save_file is not None:
+            with open(targets_save_file, "w") as fout:
+                fout.write("\n".join(map(str, y_train)))
+        if use_svo:
+            for_distances = [reshape_svo_embeddings(elem) for elem in X_train]
+        else:
+            for_distances = X_train
+        distances = np.array([cosine(first, second) 
+                              for first, second in zip(*for_distances)])
+        # pairs_test, X_test, y_test = make_data(PARAPHRASE_TEST_PATH, embedder,
+                                               # from_parses=FROM_PARSES, save_file=TEST_SAVE_PATH)
+        pairs_test, X_test, y_test =\
+            make_data(TEST_SAVE_PATH, embedder, use_svo=use_svo, from_parses=True)
+        if use_svo:
+            for_distances = [reshape_svo_embeddings(elem) for elem in X_test]
+        else:
+            for_distances = X_test
+        test_distances = np.array([cosine(first, second) 
+                                   for first, second in zip(*for_distances)])
+        initial_threshold = analyze_scores(distances, y_train, test_distances, y_test)
+        
+        network_params = config_params.get("network", dict())
+        
+        quality = np.zeros(shape=(trials, 2), dtype="float32")
+        test_scores = np.zeros(shape=(trials, len(X_test[0])), dtype="float32")
+        for i in range(trials):
+            indexes = np.arange(len(y_train), dtype=int)
+            np.random.shuffle(indexes)
+            # print(indexes[:10])
+            X_train, y_train = [X_train[0][indexes], X_train[1][indexes]], np.array(y_train)[indexes]
+            
+            network = build_network(EMBEDDINGS_DIM, use_svo=use_svo, 
+                                    initial_threshold=initial_threshold, 
+                                    **network_params)
+            train_params, save_path = make_train_params(config_params.get("train"))
+            network.fit(X_train, y_train, **train_params)
+            network.load_weights(save_path)
+            curr_scores = network.predict(X_test)[:,0]
+            quality[i] = measure_quality(y_test, curr_scores)
+            test_scores[i] = curr_scores
+            print("{:.2f}\t{:.2f}".format(*(100 * quality[i])))
+        print("")
+        for i in range(trials):
+            print("{:.2f}\t{:.2f}".format(*(100 * quality[i])))
+        print("Average F1 {:.2f}\tAverage accuracy {:.2f}".format(*(100 * quality.mean(axis=0))))
+        ensemble_scores = np.mean(test_scores, axis=0)
+        if trials % 2 == 0:
+            median_scores = np.sort(test_scores, axis=0)[(trials // 2 - 1) : (trials // 2 + 1)].mean(axis=0)
+        else:
+            median_scores = np.sort(test_scores, axis=0)[trials // 2]
+        ensemble_quality = np.array(measure_quality(y_test, ensemble_scores))
+        median_quality = np.array(measure_quality(y_test, median_scores))
+        print("Ensemble F1 {:.2f}\tEnsemble accuracy {:.2f}".format(*(100 * ensemble_quality)))
+        print("Median F1 {:.2f}\tMedian accuracy {:.2f}".format(*(100 * median_quality)))
+        
 # dump_analysis(pairs_train, distances, y_train)
 
 
