@@ -67,12 +67,20 @@ def save_data(outfile, pairs, targets, data):
     return
 
 
-def make_data(infile, embedder, ud_processor=None,
-              use_svo=False, from_parses=False, save_file=None):
+def make_data(infile, embedder, return_weights=False, return_indexes=False,
+              ud_processor=None, use_svo=False, from_parses=False, save_file=None):
     pairs, data, targets = read_data(infile, from_parses, save_file, ud_processor=ud_processor)
     parses, words, lemmas, tags = data
-    sent_embeddings = embedder(parses) if use_svo else embedder(lemmas, tags)
-    X = [sent_embeddings[::2], sent_embeddings[1::2]]
+    if use_svo:
+        sent_embeddings = embedder(
+            parses, return_weights=return_weights, return_indexes=return_indexes)
+    else:
+        sent_embeddings = embedder(
+            lemmas, tags, return_weights=return_weights, return_indexes=return_indexes)
+    if isinstance(sent_embeddings, tuple):
+        X = tuple([[elem[::2], elem[1::2]] for elem in sent_embeddings])
+    else:
+        X = [sent_embeddings[::2], sent_embeddings[1::2]]
     return pairs, X, targets
 
 
@@ -207,8 +215,11 @@ if __name__ == "__main__":
                                                   # from_parses=from_parses,
                                                   # ud_processor=ud_processor,
                                                   # save_file=TRAIN_SAVE_PATH)
-        pairs_train, X_train, y_train =\
-            make_data(TRAIN_SAVE_PATH, embedder, use_svo=use_svo, from_parses=True)
+        params = {"use_svo": use_svo, "return_weights": True, "from_parses": True}
+        if use_svo:
+            params["return_indexes"] = True
+        pairs_train, X_train, y_train = make_data(TRAIN_SAVE_PATH, embedder, **params)
+        X_train, weights_train = X_train[:2]
         if vectors_save_file is not None:
             with open(vectors_save_file, "w") as fout:
                 for first, second in zip(*X_train):
@@ -225,8 +236,10 @@ if __name__ == "__main__":
                               for first, second in zip(*for_distances)])
         # pairs_test, X_test, y_test = make_data(PARAPHRASE_TEST_PATH, embedder,
                                                # from_parses=FROM_PARSES, save_file=TEST_SAVE_PATH)
-        pairs_test, X_test, y_test =\
-            make_data(TEST_SAVE_PATH, embedder, use_svo=use_svo, from_parses=True)
+        pairs_test, X_test, y_test = make_data(TEST_SAVE_PATH, embedder, **params)
+        if use_svo:
+            indexes_test = X_test[2]
+        X_test, weights_test = X_test[:2]
         if use_svo:
             for_distances = [reshape_svo_embeddings(elem) for elem in X_test]
         else:
@@ -278,12 +291,14 @@ if __name__ == "__main__":
                         fout.write("{}\n{}\n".format(*pairs_test[i]))
                         basic_score = initial_threshold - test_distances[i]
                         fout.write("{}\t{:.3f}\t{:.3f}\n".format(y_test[i], scores_to_output[i], basic_score))
-                        fout.write("\t".join(["{:.3f}".format(x) for x in test_scores[:,i]]) + "\n\n")
+                        fout.write("\t".join(["{:.3f}".format(x) for x in test_scores[:,i]]) + "\n")
+                        fout.write("\t".join(["{:.3f}".format(x) for x in weights_test[0][i]]) + "\n")
+                        fout.write("\t".join(["{:.3f}".format(x) for x in weights_test[1][i]]) + "\n")
+                        if use_svo:
+                            fout.write("\t".join(["{}".format(x) for x in indexes_test[0][i]]) + "\n")
+                            fout.write("\t".join(["{}".format(x) for x in indexes_test[1][i]]) + "\n")
+                        fout.write("\n")
 
-
-
-
-        
 # dump_analysis(pairs_train, distances, y_train)
 
 

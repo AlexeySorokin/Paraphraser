@@ -47,8 +47,9 @@ class BasicFreqPosEmbedder:
 
 class FreqPosEmbedder(BasicFreqPosEmbedder):
 
-    def __call__(self, word_sents, tag_sents=None):
+    def __call__(self, word_sents, tag_sents=None, return_weights=False):
         sent_embeddings = np.zeros(shape=(len(word_sents), self.word_embedder.dim), dtype=float)
+        weights = []
         for start in range(0, len(word_sents), self.batch_size):
             end = start + self.batch_size
             word_embeddings = self.word_embedder(word_sents[start:end])
@@ -63,15 +64,20 @@ class FreqPosEmbedder(BasicFreqPosEmbedder):
             sent_embeddings[start:end] =\
                 np.array([np.sum(x * y[:,None], axis=0)
                           for x, y in zip(word_embeddings, word_weights)])
-        return sent_embeddings
+            weights.extend(word_weights)
+        if return_weights:
+            return sent_embeddings, weights
+        else:
+            return sent_embeddings
 
 
 class SVOFreqPosEmbedder(BasicFreqPosEmbedder):
 
     SVO_INDEXES = {"subj": 0, "verb": 1, "obj": 2}
 
-    def __call__(self, parse_sents):
+    def __call__(self, parse_sents, return_weights=False, return_indexes=False):
         sent_embeddings = np.zeros(shape=(len(parse_sents), 3 * self.word_embedder.dim), dtype=float)
+        weights, indexes = [], []
         for start in range(0, len(parse_sents), self.batch_size):
             end = start + self.batch_size
             curr_sents = parse_sents[start:end]
@@ -87,6 +93,16 @@ class SVOFreqPosEmbedder(BasicFreqPosEmbedder):
                     first_col = self.word_embedder.dim * index
                     last_col = self.word_embedder.dim * (index + 1)
                     sent_embeddings[start+i, first_col:last_col] += weight * embedding
+                weights.append(word_weights)
+                indexes.append(svo_indexes)
+        answer = [sent_embeddings, weights, indexes]
+        indexes_to_return = [0]
+        if return_weights:
+            indexes_to_return.append(1)
+        if return_indexes:
+            indexes_to_return.append(2)
+        if len(indexes_to_return) > 1:
+            return tuple([answer[i] for i in indexes_to_return])
         return sent_embeddings
 
 
