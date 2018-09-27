@@ -4,7 +4,7 @@ import sys
 
 import ujson as json
 from scipy.spatial.distance import cosine
-from sklearn.metrics import accuracy_score, f1_score
+from sklearn.metrics import accuracy_score, f1_score, precision_recall_fscore_support
 # import keras.layers as kl
 from keras.callbacks import *
 
@@ -21,13 +21,13 @@ from embedders import *
 PARAPHRASE_TRAIN_PATH = "paraphraser/paraphrases_train.xml"
 PARAPHRASE_TEST_PATH = "paraphraser/paraphrases_gold.xml"
 # EMBEDDINGS_PATH = "/home/alexeysorokin/data/Data/Fasttext/cc.ru.300.bin"
-EMBEDDINGS_PATH = "/cephfs/home/sorokin/data/embeddings/ft_native_300_ru_wiki_lenta_lower_case.bin"
+EMBEDDINGS_PATH = "/home/alexeysorokin/data/Data/DeepPavlov Embeddings/ft_native_300_ru_wiki_lenta_lower_case.bin"
+# EMBEDDINGS_PATH = "/cephfs/home/sorokin/data/embeddings/ft_native_300_ru_wiki_lenta_lower_case.bin"
 # EMBEDDINGS_PATH = "/home/alexeysorokin/data/Data/DeepPavlov Embeddings/ft_native_300_ru_wiki_lenta_lemmatize.bin"
 EMBEDDINGS_DIM = 300
-COUNTS_PATH = "../data/frequencies/Taiga_freq_lemmas.txt"
-CONFIG_PATH = [os.path.join("config", x) for x in sorted(os.listdir("config")) if x.startswith("config")]
-TAG_CONFIG_PATH = "config/pos_config.json"
-FROM_PARSES = False
+COUNTS_PATH = "/home/alexeysorokin/data/Data/frequencies/Taiga_freq_lemmas.txt"
+# COUNTS_PATH = "../data/frequencies/Taiga_freq_lemmas.txt"
+CONFIG_PATH = ["config/config.json"]
 TRAIN_SAVE_PATH = "paraphraser/parsed_paraphrases_train.xml"
 TEST_SAVE_PATH = "paraphraser/parsed_paraphrases_gold.xml"
 
@@ -40,7 +40,7 @@ TEST_SAVE_PATH = "paraphraser/parsed_paraphrases_gold.xml"
 
 UD_MODES = ["all", "word", "lemma", "pos"]
 
-def read_data(infile, from_parses=False, save_file=None):
+def read_data(infile, from_parses=False, save_file=None, ud_processor=None):
     if from_parses:
         pairs, data, targets = read_parsed_paraphrase_file(infile)
     else:
@@ -67,8 +67,10 @@ def save_data(outfile, pairs, targets, data):
     return
 
 
-def make_data(infile, embedder, use_svo=False, from_parses=False, save_file=None):
-    pairs,  (parses, words, lemmas, tags), targets = read_data(infile, from_parses, save_file)
+def make_data(infile, embedder, ud_processor=None,
+              use_svo=False, from_parses=False, save_file=None):
+    pairs, data, targets = read_data(infile, from_parses, save_file, ud_processor=ud_processor)
+    parses, words, lemmas, tags = data
     sent_embeddings = embedder(parses) if use_svo else embedder(lemmas, tags)
     X = [sent_embeddings[::2], sent_embeddings[1::2]]
     return pairs, X, targets
@@ -108,15 +110,15 @@ def analyze_scores(scores, targets, test_scores, test_targets):
             curr_test_F1 = test_TP / (test_TP + 0.5 * (test_FN + test_FP))
             if curr_F1 > best_F1:
                 best_F1, best_index, test_F1 = curr_F1, index, curr_test_F1
-            # elif best_index == index - 1:
-                # print("Best F1: {:.2f}, test F1: {:.2f}, threshold: {:.3f}".format(
-                    # 100 * best_F1, 100 *test_F1, scores[index-1]))
+        #     elif best_index == index - 1:
+        #         print("Best F1: {:.2f}, test F1: {:.2f}, threshold: {:.3f}".format(
+        #             100 * best_F1, 100 *test_F1, scores[index-1]))
         # if (curr_score_level < 100 and score == score_levels[curr_score_level]
-                # and (index == m-1 or scores[index+1] > score)):
-            # print("threshold: {:.3f}, F1: {:.2f}, test F1: {:.2f}".format(
-                # score, 100 * curr_F1, 100 * test_F1))
-            # print(TP, FN, FP, TN)
-            # curr_score_level += 1
+        #         and (index == m-1 or scores[index+1] > score)):
+        #     print("threshold: {:.3f}, F1: {:.2f}, test F1: {:.2f}".format(
+        #         score, 100 * curr_F1, 100 * test_F1))
+        #     print(TP, FN, FP, TN)
+        #     curr_score_level += 1
     print("Threshold: {:.3f}, Train F1: {:.2f}, Test F1: {:.2f}".format(
         scores[best_index], 100 * best_F1, 100 * test_F1))
     return scores[best_index]
@@ -138,16 +140,18 @@ def make_train_params(params):
     
 def measure_quality(y_true, y_pred):
     y_pred_binary = (y_pred >= 0.0)
-    # print(y_true[:10], y_pred_binary[:10])
-    return f1_score(y_true, y_pred_binary), accuracy_score(y_true, y_pred_binary)
+    scores = list(precision_recall_fscore_support(y_true, y_pred_binary, average="binary"))[:3]
+    scores = np.array(scores + [accuracy_score(y_true, y_pred_binary)])
+    return scores
 
 
 def reshape_svo_embeddings(data):
     return np.sum(np.reshape(data, (data.shape[0], 3, -1)), axis=1)
     
     
-SHORT_OPTS = "S:T:pn:"    
-    
+SHORT_OPTS = "S:T:pn:fo:e"
+QUALITY_FORMAT_STRING = "P:{:.2f} R:{:.2f} F1:{:.2f} A:{:.2f}"
+
 if __name__ == "__main__":
 
     np.set_printoptions(precision=3)
@@ -155,6 +159,8 @@ if __name__ == "__main__":
     opts, args = getopt.getopt(sys.argv[1:], SHORT_OPTS)
     
     vectors_save_file, targets_save_file, use_svo = None, None, False
+    from_parses = False
+    outfile, output_ensemble_scores = None, False
     trials = 1
     for opt, val in opts:
         if opt == "-S":
@@ -165,16 +171,27 @@ if __name__ == "__main__":
             use_svo = True
         elif opt == "-n":
             trials = int(val)
+        elif opt == "-f":
+            from_parses = True
+        elif opt == "-o":
+            outfile = val
+        elif opt == "-e":
+            output_ensemble_scores = True
+
     print("Reading counts...")
     word_counts = read_counts(COUNTS_PATH, 1, 2)
     print("Reading embeddings...")
     word_embedder = FasttextEmbedder(EMBEDDINGS_PATH, dim=300)
 
-    # tagger = build_model_from_config(find_config("morpho_ru_syntagrus_train_pymorphy"))
-    # print("Tagger built")
-    # ud_model = Model.load("russian-syntagrus-ud-2.0-170801.udpipe")
-    # print("UD Model loaded")
-    # ud_processor = MixedUDPreprocessor(ud_model, tagger)
+
+    if from_parses:
+        tagger = build_model_from_config(find_config("morpho_ru_syntagrus_train_pymorphy"))
+        print("Tagger built")
+        ud_model = Model.load("russian-syntagrus-ud-2.0-170801.udpipe")
+        print("UD Model loaded")
+        ud_processor = MixedUDPreprocessor(ud_model, tagger)
+    else:
+        ud_processor = None
     for config_path in CONFIG_PATH:
         # print("{:<24}".format(config_path.split("/")[-1]), end="\t")
         with open(config_path, "r", encoding="utf8") as fin:
@@ -187,7 +204,9 @@ if __name__ == "__main__":
         embedder = Embedder(word_embedder, word_counts, **embedder_params)
 
         # pairs_train, X_train, y_train = make_data(PARAPHRASE_TRAIN_PATH, embedder,
-                                                  # from_parses=FROM_PARSES, save_file=TRAIN_SAVE_PATH)
+                                                  # from_parses=from_parses,
+                                                  # ud_processor=ud_processor,
+                                                  # save_file=TRAIN_SAVE_PATH)
         pairs_train, X_train, y_train =\
             make_data(TRAIN_SAVE_PATH, embedder, use_svo=use_svo, from_parses=True)
         if vectors_save_file is not None:
@@ -218,28 +237,30 @@ if __name__ == "__main__":
         
         network_params = config_params.get("network", dict())
         
-        quality = np.zeros(shape=(trials, 2), dtype="float32")
+        quality = np.zeros(shape=(trials, 4), dtype="float32")
         test_scores = np.zeros(shape=(trials, len(X_test[0])), dtype="float32")
         for i in range(trials):
             indexes = np.arange(len(y_train), dtype=int)
             np.random.shuffle(indexes)
             # print(indexes[:10])
             X_train, y_train = [X_train[0][indexes], X_train[1][indexes]], np.array(y_train)[indexes]
-            
-            network = build_network(EMBEDDINGS_DIM, use_svo=use_svo, 
-                                    initial_threshold=initial_threshold, 
-                                    **network_params)
+
+            network_params["dim"] = network_params.get("dim", EMBEDDINGS_DIM)
+            network = NetworkBuilder(use_svo=use_svo,
+                                     initial_threshold=initial_threshold,
+                                     **network_params).build()
             train_params, save_path = make_train_params(config_params.get("train"))
             network.fit(X_train, y_train, **train_params)
             network.load_weights(save_path)
             curr_scores = network.predict(X_test)[:,0]
             quality[i] = measure_quality(y_test, curr_scores)
             test_scores[i] = curr_scores
-            print("{:.2f}\t{:.2f}".format(*(100 * quality[i])))
+            print(QUALITY_FORMAT_STRING.format(*(100 * quality[i])))
         print("")
-        for i in range(trials):
-            print("{:.2f}\t{:.2f}".format(*(100 * quality[i])))
-        print("Average F1 {:.2f}\tAverage accuracy {:.2f}".format(*(100 * quality.mean(axis=0))))
+        if trials > 1:
+            for i in range(trials):
+                print(QUALITY_FORMAT_STRING.format(*(100 * quality[i])))
+        print(("Average scores. "+ QUALITY_FORMAT_STRING).format(*(100 * quality.mean(axis=0))))
         ensemble_scores = np.mean(test_scores, axis=0)
         if trials % 2 == 0:
             median_scores = np.sort(test_scores, axis=0)[(trials // 2 - 1) : (trials // 2 + 1)].mean(axis=0)
@@ -247,8 +268,21 @@ if __name__ == "__main__":
             median_scores = np.sort(test_scores, axis=0)[trials // 2]
         ensemble_quality = np.array(measure_quality(y_test, ensemble_scores))
         median_quality = np.array(measure_quality(y_test, median_scores))
-        print("Ensemble F1 {:.2f}\tEnsemble accuracy {:.2f}".format(*(100 * ensemble_quality)))
-        print("Median F1 {:.2f}\tMedian accuracy {:.2f}".format(*(100 * median_quality)))
+        print(("Ensemble scores. "+ QUALITY_FORMAT_STRING).format(*(100 * ensemble_quality)))
+        print(("Median scores. "+ QUALITY_FORMAT_STRING).format(*(100 * median_quality)))
+        if outfile is not None:
+            scores_to_output = ensemble_scores if output_ensemble_scores else median_scores
+            with open(outfile, "w", encoding="utf8") as fout:
+                for i in range(len(scores_to_output)):
+                    if int(scores_to_output[i] >= 0) != y_test[i]:
+                        fout.write("{}\n{}\n".format(*pairs_test[i]))
+                        basic_score = initial_threshold - test_distances[i]
+                        fout.write("{}\t{:.3f}\t{:.3f}\n".format(y_test[i], scores_to_output[i], basic_score))
+                        fout.write("\t".join(["{:.3f}".format(x) for x in test_scores[:,i]]) + "\n\n")
+
+
+
+
         
 # dump_analysis(pairs_train, distances, y_train)
 

@@ -1,7 +1,6 @@
 import numpy as np
 
 from work import SyntaxTreeGraph
-from deeppavlov.models.embedders.fasttext_embedder import FasttextEmbedder
 
 
 class BasicFreqPosEmbedder:
