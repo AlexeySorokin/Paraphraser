@@ -195,7 +195,9 @@ class NetworkBuilder:
         if self.dropout > 0.0:
             first, second = kl.Dropout(self.dropout)(first), kl.Dropout(self.dropout)(second)
 
-        score = SimilarityLayer(use_svo=self.use_svo, output_dim=self.dim, **self.kwargs)([first, second])
+        layers = self.kwargs.pop("layers", 1)
+        score = SimilarityLayer(use_svo=self.use_svo, output_dim=self.dim,
+                                layers=layers, **self.kwargs)([first, second])
 
         self.model = keras.Model(inputs, score)
         loss = HingeLoss(self.margin, negative_weight=self.false_negative_weight)

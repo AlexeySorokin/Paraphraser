@@ -26,6 +26,7 @@ EMBEDDINGS_PATH = "/home/alexeysorokin/data/Data/DeepPavlov Embeddings/ft_native
 # EMBEDDINGS_PATH = "/home/alexeysorokin/data/Data/DeepPavlov Embeddings/ft_native_300_ru_wiki_lenta_lemmatize.bin"
 EMBEDDINGS_DIM = 300
 COUNTS_PATH = "/home/alexeysorokin/data/Data/frequencies/Taiga_freq_lemmas.txt"
+# COUNTS_PATH = "/home/alexeysorokin/data/Data/frequencies/counts_wiki_lenta_lem.txt"
 # COUNTS_PATH = "../data/frequencies/Taiga_freq_lemmas.txt"
 CONFIG_PATH = ["config/config.json"]
 TRAIN_SAVE_PATH = "paraphraser/parsed_paraphrases_train.xml"
@@ -75,8 +76,7 @@ def make_data(infile, embedder, return_weights=False, return_indexes=False,
         sent_embeddings = embedder(
             parses, return_weights=return_weights, return_indexes=return_indexes)
     else:
-        sent_embeddings = embedder(
-            lemmas, tags, return_weights=return_weights, return_indexes=return_indexes)
+        sent_embeddings = embedder(lemmas, tags, return_weights=return_weights)
     if isinstance(sent_embeddings, tuple):
         X = tuple([[elem[::2], elem[1::2]] for elem in sent_embeddings])
     else:
@@ -192,7 +192,7 @@ if __name__ == "__main__":
     word_embedder = FasttextEmbedder(EMBEDDINGS_PATH, dim=300)
 
 
-    if from_parses:
+    if not from_parses:
         tagger = build_model_from_config(find_config("morpho_ru_syntagrus_train_pymorphy"))
         print("Tagger built")
         ud_model = Model.load("russian-syntagrus-ud-2.0-170801.udpipe")
@@ -212,9 +212,13 @@ if __name__ == "__main__":
         embedder = Embedder(word_embedder, word_counts, **embedder_params)
 
         # pairs_train, X_train, y_train = make_data(PARAPHRASE_TRAIN_PATH, embedder,
-                                                  # from_parses=from_parses,
-                                                  # ud_processor=ud_processor,
-                                                  # save_file=TRAIN_SAVE_PATH)
+        #                                           from_parses=from_parses,
+        #                                           ud_processor=ud_processor,
+        #                                           save_file=TRAIN_SAVE_PATH)
+        # pairs_test, X_test, y_test = make_data(PARAPHRASE_TEST_PATH, embedder,
+        #                                        from_parses=from_parses,
+        #                                        ud_processor=ud_processor,
+        #                                        save_file=TEST_SAVE_PATH)
         params = {"use_svo": use_svo, "return_weights": True, "from_parses": True}
         if use_svo:
             params["return_indexes"] = True

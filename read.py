@@ -3,6 +3,11 @@ from bs4 import BeautifulSoup
 import ujson as json
 
 
+def sanitize(text):
+    text = text.replace("«", "\"")
+    text = text.replace("»", "\"")
+    return text
+
 def read_paraphrases(infile, n=-1):
     with open(infile, "r", encoding="utf-8") as fin:
         soup = BeautifulSoup(fin.read(), "lxml")
@@ -12,7 +17,8 @@ def read_paraphrases(infile, n=-1):
         if i == n:
             break
         first, second, target = elem.find_all(attrs={"name": ["text_1", "text_2", "class"]})
-        pairs.append([first.text, second.text])
+        first_text, second_text = sanitize(first.text), sanitize(second.text)
+        pairs.append([first_text, second_text])
         targets.append(int(target.text))
     return pairs, targets
 
