@@ -1,12 +1,18 @@
 from collections import defaultdict
+from itertools import chain
+
+import numpy as np
 from bs4 import BeautifulSoup
 import ujson as json
+
+from save import save_data
 
 
 def sanitize(text):
     text = text.replace("«", "\"")
     text = text.replace("»", "\"")
     return text
+
 
 def read_paraphrases(infile, n=-1):
     with open(infile, "r", encoding="utf-8") as fin:
@@ -31,7 +37,7 @@ def read_parsed_paraphrase_file(infile):
         pairs.append((elem['first'], elem['second']))
         targets.append(elem['target'])
         data.extend([elem['first_parse'], elem['second_parse']])
-    data =list(map(list, zip(*data)))
+    data = list(map(list, zip(*data)))
     return pairs, data, targets
 
 
@@ -56,3 +62,40 @@ def read_counts(infile, word_column=0, count_column=1, n=-1,
             if word not in ranks:
                 ranks[word] = len(answer)
     return (answer, ranks) if return_ranks else answer
+
+
+def read_data(infile, from_parses=False, save_file=None, ud_processor=None, parse_syntax=True, n=-1):
+    if from_parses:
+        pairs, data, targets = read_parsed_paraphrase_file(infile)
+    else:
+        pairs, targets = read_paraphrases(infile, n=n)
+        # pairs = [["ЦУП установил связь с грузовым кораблем \"Прогресс\"",
+        #           "Связь с космическим кораблем \"Прогресс\" восстановлена"]]
+        # targets = [1]
+        targets = (np.array(targets) >= 0).astype("int")
+        modes = UD_MODES[:]
+        if not parse_syntax:
+            modes = modes[1:]
+        data = ud_processor.process(list(chain.from_iterable(pairs)), modes)
+        if save_file is not None:
+            save_data(save_file, pairs, targets, data)
+    return pairs, data, np.array(targets)
+
+
+UD_MODES = ["all", "word", "lemma", "pos", "feats"]
+
+
+def make_data(infile, embedder, return_weights=False, return_indexes=False,
+              ud_processor=None, use_svo=False, from_parses=False, save_file=None):
+    pairs, data, targets = read_data(infile, from_parses, save_file, ud_processor=ud_processor)
+    parses, words, lemmas, tags = data
+    if use_svo:
+        sent_embeddings = embedder(
+            parses, return_weights=return_weights, return_indexes=return_indexes)
+    else:
+        sent_embeddings = embedder(lemmas, tags, return_weights=return_weights)
+    if isinstance(sent_embeddings, tuple):
+        X = tuple([[elem[::2], elem[1::2]] for elem in sent_embeddings])
+    else:
+        X = [sent_embeddings[::2], sent_embeddings[1::2]]
+    return pairs, X, targets

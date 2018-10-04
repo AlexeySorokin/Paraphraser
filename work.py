@@ -218,17 +218,20 @@ class MixedUDPreprocessor:
                 pos, feats = make_pos_and_feats(tag)
                 for index, value in zip([3, 5, 2], [pos, feats, lemma]):
                     UD_sents[i][j][index] = value
-        for i, sent in enumerate(UD_sents):
-            UD_sents[i] = split_by_colons(sent)
-        sents_to_parse = ["\n\n".join(UD_list_to_str(elem) for elem in sent) for sent in UD_sents]
-        t = time()
-        print("Preparing to syntax parse: {:.2f}".format(t - t_last))
-        t_last = t
-        parse_sents = [list(chain.from_iterable(prettify_UD_output(
-            self.parser.process(sent), has_header=False, attach_single_root=True)))
-                       for sent in sents_to_parse]
-        t = time()
-        print("Parsing syntax: {:.2f}".format(t - t_last))
+        if  "all" in fields_to_return or "head" in fields_to_return or 'rel' in fields_to_return:
+            for i, sent in enumerate(UD_sents):
+                UD_sents[i] = split_by_colons(sent)
+            sents_to_parse = ["\n\n".join(UD_list_to_str(elem) for elem in sent) for sent in UD_sents]
+            t = time()
+            print("Preparing to syntax parse: {:.2f}".format(t - t_last))
+            t_last = t
+            parse_sents = [list(chain.from_iterable(prettify_UD_output(
+                self.parser.process(sent), has_header=False, attach_single_root=True)))
+                           for sent in sents_to_parse]
+            t = time()
+            print("Parsing syntax: {:.2f}".format(t - t_last))
+        else:
+            parse_sents = UD_sents
         t_last = t
         answer = []
         for key in fields_to_return:
