@@ -250,7 +250,7 @@ class MixedUDPreprocessor:
         parses = self.lemmatizer.parse(word)
         for parse in parses:
             curr_tag = str(parse.tag)
-            curr_lemma = parse.normal_form
+            curr_lemma = parse.normal_form.replace("ё", "е")
             curr_ud_tag = self.converter(curr_tag)
             if are_compatible_tags(tag, curr_ud_tag):
                 return curr_lemma

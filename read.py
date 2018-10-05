@@ -11,6 +11,7 @@ from save import save_data
 def sanitize(text):
     text = text.replace("«", "\"")
     text = text.replace("»", "\"")
+    text = text.replace("ё", "е")
     return text
 
 
