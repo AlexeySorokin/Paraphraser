@@ -93,7 +93,6 @@ def topological_sort(graph, reverse=False):
                     stack.pop()
                 elif colors[v] == BLACK:
                     stack.pop()
-    print(len(graph), len(order))
     return order if reverse else order[::-1]
 
 
@@ -131,16 +130,20 @@ def make_ancestors_lists(graph, derivates, use_derivates=False):
             print(i, u)
             # sys.exit()
     # одна и та же вершина может оказаться предком на двух разных расстояниях, оставляем минимальное
+    # for i, curr_ancestors in enumerate(ancestors):
+    #     processed_ancestors = set()
+    #     for j, curr_level_ancestors in enumerate(curr_ancestors):
+    #         curr_ancestors[j] =\
+    #             {x for x in curr_level_ancestors if x not in processed_ancestors}
+    #         processed_ancestors.update(curr_ancestors[j])
     for i, curr_ancestors in enumerate(ancestors):
-        processed_ancestors = set()
-        for j, curr_level_ancestors in enumerate(curr_ancestors):
-            curr_ancestors[j] =\
-                {x for x in curr_level_ancestors if x not in processed_ancestors}
-            processed_ancestors.update(curr_ancestors[j])
+        new_curr_ancestors = dict()
+        for d, elem in enumerate(curr_ancestors, 1):
+            for x in elem:
+                if x not in new_curr_ancestors:
+                    new_curr_ancestors[x] = d
+        ancestors[i] = new_curr_ancestors
     paths_number_counts = defaultdict(int)
     for elem in paths_number:
         paths_number_counts[elem] +=1
-    # for n, count in sorted(paths_number_counts.items()):
-    #     print(n, count)
-    # sys.exit()
     return ancestors, max_depth_in_graph, depths

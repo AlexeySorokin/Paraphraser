@@ -26,6 +26,7 @@ def dump_analysis(pairs, distances, targets):
 
 def analyze_scores(scores, targets, test_scores, test_targets, verbose=0):
     scores, targets = np.array(scores), np.array(targets)
+    test_scores, test_targets = np.array(test_scores), np.array(test_targets)
     m = len(scores)
     order = np.argsort(scores)
     scores, targets = scores[order], targets[order]
