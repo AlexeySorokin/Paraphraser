@@ -24,7 +24,8 @@ def dump_analysis(pairs, distances, targets):
             fout.write("{}\t{}\n{}\n{}\n".format(dist, target, first, second))
 
 
-def analyze_scores(scores, targets, test_scores, test_targets):
+def analyze_scores(scores, targets, test_scores, test_targets, verbose=0):
+    scores, targets = np.array(scores), np.array(targets)
     m = len(scores)
     order = np.argsort(scores)
     scores, targets = scores[order], targets[order]
@@ -49,15 +50,16 @@ def analyze_scores(scores, targets, test_scores, test_targets):
             curr_test_F1 = test_TP / (test_TP + 0.5 * (test_FN + test_FP))
             if curr_F1 > best_F1:
                 best_F1, best_index, test_F1 = curr_F1, index, curr_test_F1
-        #     elif best_index == index - 1:
-        #         print("Best F1: {:.2f}, test F1: {:.2f}, threshold: {:.3f}".format(
-        #             100 * best_F1, 100 *test_F1, scores[index-1]))
-        # if (curr_score_level < 100 and score == score_levels[curr_score_level]
-        #         and (index == m-1 or scores[index+1] > score)):
-        #     print("threshold: {:.3f}, F1: {:.2f}, test F1: {:.2f}".format(
-        #         score, 100 * curr_F1, 100 * test_F1))
-        #     print(TP, FN, FP, TN)
-        #     curr_score_level += 1
+            elif verbose and best_index == index - 1:
+                print("Best F1: {:.2f}, test F1: {:.2f}, threshold: {:.3f}".format(
+                    100 * best_F1, 100 *test_F1, scores[index-1]))
+        if verbose:
+            if (curr_score_level < 100 and score == score_levels[curr_score_level]
+                    and (index == m-1 or scores[index+1] > score)):
+                print("threshold: {:.3f}, F1: {:.2f}, test F1: {:.2f}".format(
+                    score, 100 * curr_F1, 100 * test_F1))
+                print(TP, FN, FP, TN)
+                curr_score_level += 1
     print("Threshold: {:.3f}, Train F1: {:.2f}, Test F1: {:.2f}".format(
         scores[best_index], 100 * best_F1, 100 * test_F1))
     return scores[best_index]

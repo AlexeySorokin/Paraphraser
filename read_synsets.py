@@ -1,3 +1,4 @@
+import sys
 from collections import defaultdict
 import xml.etree.ElementTree as ET
 
@@ -92,23 +93,26 @@ def topological_sort(graph, reverse=False):
                     stack.pop()
                 elif colors[v] == BLACK:
                     stack.pop()
+    print(len(graph), len(order))
     return order if reverse else order[::-1]
 
 
-def make_ancestors_lists(graph, derivates):
+def make_ancestors_lists(graph, derivates, use_derivates=False):
     order = topological_sort(graph, reverse=True)
     # ancestors[i][j] --- предки вершины i на расстоянии j
     ancestors = [[] for _ in graph]
+    paths_number = [0] * len(graph)
     max_depth_in_graph = 1
     depths = dict()
     for i, u in enumerate(order, 1):
         if i % 10000 == 0:
             print("{} vertexes processed".format(i))
-        depths[u]=0
-        if derivates.get(u) is not None:
-            parents = graph[u] + graph[derivates[u]]
-        else:
-            parents = graph[u]
+        depths[u] = 0
+        parents = graph[u]
+        # if derivates.get(u) is not None:
+        #     parents = graph[u] + graph[derivates[u]]
+        # else:
+        #     parents = graph[u]
         if len(parents) > 0:  # у вершины есть предки
             # максимальное расстояние до предка
             depths[u] = max(len(ancestors[v]) for v in parents)+1
@@ -120,11 +124,23 @@ def make_ancestors_lists(graph, derivates):
                 # предки v на расстоянии d становятся предками u на расстоянии d+1
                 for d, curr_ancestors in enumerate(ancestors[v]):
                     ancestors[u][d+1].update(curr_ancestors)
+            paths_number[u] = sum(paths_number[x] for x in parents)
+        else:
+            paths_number[u] = 1
+        if paths_number[u] == 0:
+            print(i, u)
+            # sys.exit()
     # одна и та же вершина может оказаться предком на двух разных расстояниях, оставляем минимальное
     for i, curr_ancestors in enumerate(ancestors):
         processed_ancestors = set()
         for j, curr_level_ancestors in enumerate(curr_ancestors):
             curr_ancestors[j] =\
-                [x for x in curr_level_ancestors if x not in processed_ancestors]
+                {x for x in curr_level_ancestors if x not in processed_ancestors}
             processed_ancestors.update(curr_ancestors[j])
+    paths_number_counts = defaultdict(int)
+    for elem in paths_number:
+        paths_number_counts[elem] +=1
+    # for n, count in sorted(paths_number_counts.items()):
+    #     print(n, count)
+    # sys.exit()
     return ancestors, max_depth_in_graph, depths
