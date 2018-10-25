@@ -1,0 +1,16 @@
+{
+  "relations_file": "ruthes-lite-2/relations_all.xml",
+  "senses_file": "ruthes-lite-2/senses_all.xml",
+  "use_derivates": false,
+  "embedders": [["/home/alexeysorokin/data/Data/DeepPavlov Embeddings/ft_native_300_ru_wiki_lenta_lower_case.bin",
+                 300, "fasttext"]],
+  "metrics": [],
+  "save_scores_file": "dump/scores_fasttext",
+  "train_distances_file": "dump/distances_train_fasttext.out",
+  "test_distances_file": "dump/distances_test_fastetxt.out",
+  "train_file": "paraphraser/parsed_paraphrases_train_new.xml",
+  "test_file": "paraphraser/parsed_paraphrases_gold_new.xml",
+  "test_analysis": "dump/train_analysis_fasttext",
+  "verbose": 1,
+  "scorer": {"save_zero_scores": false, "all_scores_present": false}
+}

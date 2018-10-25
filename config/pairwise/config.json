@@ -1,0 +1,13 @@
+{
+  "relations_file": "ruthes-lite-2/relations_all.xml",
+  "senses_file": "ruthes-lite-2/senses_all.xml",
+  "metrics": ["modified_lch"],
+  "use_derivates": false,
+  "load_scores_file": "dump/lemma_scores.out",
+  "train_distances_file": "dump/distances_train_new_1.out",
+  "test_distances_file": "dump/distances_test_new_1.out",
+  "train_file": "paraphraser/parsed_paraphrases_train_new.xml",
+  "test_file": "paraphraser/parsed_paraphrases_gold_new.xml",
+  "verbose": 1,
+  "scorer": {"save_zero_scores": false, "all_scores_present": false}
+}

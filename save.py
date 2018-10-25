@@ -53,14 +53,42 @@ def analyze_scores(scores, targets, test_scores, test_targets, verbose=0):
                 best_F1, best_index, test_F1 = curr_F1, index, curr_test_F1
             elif verbose and best_index == index - 1:
                 print("Best F1: {:.2f}, test F1: {:.2f}, threshold: {:.3f}".format(
-                    100 * best_F1, 100 *test_F1, scores[index-1]))
+                    100 * best_F1, 100 *curr_test_F1, scores[index-1]))
         if verbose:
             if (curr_score_level < 100 and score == score_levels[curr_score_level]
                     and (index == m-1 or scores[index+1] > score)):
                 print("threshold: {:.3f}, F1: {:.2f}, test F1: {:.2f}".format(
-                    score, 100 * curr_F1, 100 * test_F1))
+                    score, 100 * curr_F1, 100 * curr_test_F1))
                 print(TP, FN, FP, TN)
                 curr_score_level += 1
     print("Threshold: {:.3f}, Train F1: {:.2f}, Test F1: {:.2f}".format(
         scores[best_index], 100 * best_F1, 100 * test_F1))
     return scores[best_index]
+
+
+def output_errors(sents, targets, threshold, scores, word_scores,
+                  outfile, metrics_number, reverse=False):
+    order = np.argsort(scores)
+    if reverse:
+        order = order[::-1]
+    with open(outfile, "w", encoding="utf8") as fout:
+        for index in order:
+            if (scores[index] > threshold) == reverse:
+                break
+            if targets[index] != int(reverse):
+                fout.write("\n".join(sents[index]) + "\n")
+                curr_pairwise_scores, first_words, second_words = word_scores[index]
+                first_length = max([len(x) for x in first_words])
+                column_lengths = [max(len(x), 5 * metrics_number) for x in second_words]
+                fout.write("{:<{width}}".format("", width=first_length + 2))
+                for word, width in zip(second_words, column_lengths):
+                    fout.write("{:<{width}}".format(word, width=width + 2))
+                fout.write("\n")
+                for i, (word, curr_scores) in enumerate(zip(first_words, curr_pairwise_scores)):
+                    fout.write("{:<{width}}".format(word, width=first_length + 2))
+                    for j, width in enumerate(column_lengths):
+                        fout.write("{:<{width}}".format(
+                            " ".join("{:.2f}".format(x) for x in curr_scores[j][0]), width=width + 2))
+                    fout.write("\n")
+                fout.write("Aggregate: {:.2f}\n\n".format(scores[index]))
+

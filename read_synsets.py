@@ -107,11 +107,10 @@ def make_ancestors_lists(graph, derivates, use_derivates=False):
         if i % 10000 == 0:
             print("{} vertexes processed".format(i))
         depths[u] = 0
-        parents = graph[u]
-        # if derivates.get(u) is not None:
-        #     parents = graph[u] + graph[derivates[u]]
-        # else:
-        #     parents = graph[u]
+        if use_derivates and derivates.get(u) is not None:
+            parents = graph[u] + graph[derivates[u]]
+        else:
+            parents = graph[u]
         if len(parents) > 0:  # у вершины есть предки
             # максимальное расстояние до предка
             depths[u] = max(len(ancestors[v]) for v in parents)+1
