@@ -73,11 +73,11 @@ def output_errors(sents, targets, threshold, scores, word_scores,
         order = order[::-1]
     with open(outfile, "w", encoding="utf8") as fout:
         for index in order:
-            if (scores[index] > threshold) == reverse:
+            if (scores[index] > threshold) != reverse:
                 break
-            if targets[index] != int(reverse):
+            if targets[index] == int(reverse):
                 fout.write("\n".join(sents[index]) + "\n")
-                curr_pairwise_scores, first_words, second_words = word_scores[index]
+                first_words, second_words, curr_pairwise_scores = word_scores[index]
                 first_length = max([len(x) for x in first_words])
                 column_lengths = [max(len(x), 5 * metrics_number) for x in second_words]
                 fout.write("{:<{width}}".format("", width=first_length + 2))
@@ -90,5 +90,5 @@ def output_errors(sents, targets, threshold, scores, word_scores,
                         fout.write("{:<{width}}".format(
                             " ".join("{:.2f}".format(x) for x in curr_scores[j][0]), width=width + 2))
                     fout.write("\n")
-                fout.write("Aggregate: {:.2f}\n\n".format(scores[index]))
+                fout.write("Aggregate: {:.2f}\n\n".format(1.0 - scores[index]))
 

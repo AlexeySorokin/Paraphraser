@@ -234,20 +234,23 @@ class PairwiseScorer:
             first_synsets = synsets_by_lemmas[first_word]
             for j, second_elem in enumerate(second_sent):
                 second_word, second_pos = second_elem[2:4]
-                word_scores = self._collect_word_score(first_word, second_word)
                 saved_scores = self.distance_map.get((first_word, second_word), self.default_score)
                 if max(saved_scores[0]) > 0.0 or self.all_scores_present:
-                    synsets_with_scores[i][j] = (word_scores + saved_scores[0],) + saved_scores[1:]
+                    synsets_with_scores[i][j] = saved_scores
                     continue
+                word_scores = self._collect_word_score(first_word, second_word)
                 second_synsets = synsets_by_lemmas[second_word]
-                aggr_score, score = self.get_synset_score(
+                _, score = self.get_synset_score(
                     first_word, second_word, first_synsets, second_synsets)
-                if aggr_score > 0.0:
+                score = (word_scores + score[0],) + score[1:]
+                if max(score[0]) > 0.0:
                     self.distance_map[(first_word, second_word)] = score
-                synsets_with_scores[i][j] = (word_scores + score[0],) + score[1:]
+                synsets_with_scores[i][j] = score
         return synsets_with_scores, first_indexes, second_indexes
 
     def get_synset_score(self, first_word, second_word, first_synsets, second_synsets):
+        if self.synset_metrics_number == 0:
+            return 0.0, ([], None, None)
         curr_metrics, first_synset, second_synset = None, None, None
         if len(first_synsets) == 0 or len(second_synsets) == 0:
             curr_metrics = [float(first_word == second_word)] * self.synset_metrics_number
@@ -316,6 +319,7 @@ if __name__ == "__main__":
     ancestors_lists, D, depths =\
         make_ancestors_lists(graph, derivates, use_derivates=config["use_derivates"])
     embedders = read_embedders(config["embedders"])
+
     scorer = PairwiseScorer(ancestors_lists, D, depths, synsets_by_lemmas,
                             synsets_encoding, config["metrics"], embedders=embedders,
                             verbose=config["verbose"], **config["scorer"])
@@ -345,14 +349,14 @@ if __name__ == "__main__":
     if "train_analysis" in config:
         fp_file = config["train_analysis"] + "_FP"
         output_errors(sents, targets, initial_threshold,  similarity_scores,
-                      word_scores, fp_file, scorer.metrics_number, reverse=True)
+                      word_scores, fp_file, scorer.metrics_number)
         fn_file = config["train_analysis"] + "_FN"
         output_errors(sents, targets, initial_threshold, similarity_scores,
-                      word_scores, fn_file, scorer.metrics_number)
-    # if "test_analysis" in config:
-    #     fp_file = config["test_analysis"] + "_FP"
-    #     output_errors(sents, targets, initial_threshold, similarity_scores,
-    #                   word_scores, fp_file, scorer.metrics_number, reverse=True)
-    #     fn_file = config["test_analysis"] + "_FN"
-    #     output_errors(sents, targets, initial_threshold, similarity_scores,
-    #                   word_scores, fn_file, scorer.metrics_number)
+                      word_scores, fn_file, scorer.metrics_number, reverse=True)
+    if "test_analysis" in config:
+        fp_file = config["test_analysis"] + "_FP"
+        output_errors(test_sents, test_targets, initial_threshold, test_similarity_scores,
+                      test_word_scores, fp_file, scorer.metrics_number)
+        fn_file = config["test_analysis"] + "_FN"
+        output_errors(test_sents, test_targets, initial_threshold, test_similarity_scores,
+                      test_word_scores, fn_file, scorer.metrics_number, reverse=True)

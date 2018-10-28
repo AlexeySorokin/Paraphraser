@@ -10,7 +10,8 @@
   "test_distances_file": "dump/distances_test_fastetxt.out",
   "train_file": "paraphraser/parsed_paraphrases_train_new.xml",
   "test_file": "paraphraser/parsed_paraphrases_gold_new.xml",
-  "test_analysis": "dump/train_analysis_fasttext",
+  "train_analysis": "dump/train_analysis_fasttext",
+  "test_analysis": "dump/test_analysis_fasttext",
   "verbose": 1,
   "scorer": {"save_zero_scores": false, "all_scores_present": false}
 }
