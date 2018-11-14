@@ -38,7 +38,8 @@ def read_parsed_paraphrase_file(infile):
         pairs.append((elem['first'], elem['second']))
         targets.append(elem['target'])
         data.extend([elem['first_parse'], elem['second_parse']])
-    data = list(map(list, zip(*data)))
+    # data = list(map(list, zip(*data)))
+    data = [elem[0] for elem in data]
     return pairs, data, targets
 
 

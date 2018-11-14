@@ -24,7 +24,7 @@ def dump_analysis(pairs, distances, targets):
             fout.write("{}\t{}\n{}\n{}\n".format(dist, target, first, second))
 
 
-def analyze_scores(scores, targets, test_scores, test_targets, verbose=0):
+def analyze_scores(scores, targets, test_scores, test_targets, verbose=0, metric="F1"):
     scores, targets = np.array(scores), np.array(targets)
     test_scores, test_targets = np.array(test_scores), np.array(test_targets)
     m = len(scores)
@@ -39,6 +39,7 @@ def analyze_scores(scores, targets, test_scores, test_targets, verbose=0):
     curr_test_threshold = 0
     test_TP, test_FN  = 0, (test_targets == 1).astype("int").sum()
     test_FP, test_TN = 0, (test_targets == 0).astype("int").sum()
+    # acc, test_acc = 0.0, 0.0
     for index, (score, target) in enumerate(zip(scores, targets)):
         TP, FN, FP, TN = TP+target, FN-target, FP+(1-target), TN-(1-target)
         curr_F1 = TP / (TP + 0.5 * (FN + FP))

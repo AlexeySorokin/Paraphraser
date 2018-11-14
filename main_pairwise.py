@@ -7,9 +7,11 @@ import numpy as np
 from scipy.spatial.distance import cosine
 import statprof
 
-sys.path.append("data/DeepPavlov/deeppavlov")
-from deeppavlov.core.commands.infer import build_model_from_config
-from deeppavlov.deep import find_config
+sys.path.append("/home/alexeysorokin/data/DeepPavlov")
+CONFIG_PATH = "config/DeepPavlov/morpho_ru_syntagrus_pymorphy.json"
+
+
+from deeppavlov.core.commands.infer import build_model
 from deeppavlov.models.embedders.fasttext_embedder import FasttextEmbedder
 from ufal_udpipe import Model as udModel
 
@@ -18,7 +20,7 @@ from read import *
 from work import MixedUDPreprocessor
 from save import analyze_scores, output_errors
 
-tagger = build_model_from_config(find_config("morpho_ru_syntagrus_train_pymorphy"))
+tagger = build_model(CONFIG_PATH)
 ud_model = udModel.load("russian-syntagrus-ud-2.0-170801.udpipe")
 ud_processor = MixedUDPreprocessor(tagger=tagger, model=ud_model)
 
@@ -28,7 +30,8 @@ NO_SYNSET = -1
 
 
 def get_active_indexes(sent):
-    return [i for i, elem in enumerate(sent) if elem[3] in POS_TO_WORK]
+    return [i for i, elem in enumerate(sent)
+            if (elem[3] in POS_TO_WORK or elem[7] == "nsubj" or elem[1].isdigit())]
 
 
 def get_common_vertexes_with_depths(first_depths, second_depths):
@@ -238,6 +241,11 @@ class PairwiseScorer:
                 if max(saved_scores[0]) > 0.0 or self.all_scores_present:
                     synsets_with_scores[i][j] = saved_scores
                     continue
+                special_score = self._get_special_score(first_word, second_word, first_sent, second_sent, i, j)
+                if special_score is not None:
+                    synsets_with_scores[i][j] = special_score
+                    self.distance_map[(first_word, second_word)] = special_score
+                    continue
                 word_scores = self._collect_word_score(first_word, second_word)
                 second_synsets = synsets_by_lemmas[second_word]
                 _, score = self.get_synset_score(
@@ -247,6 +255,15 @@ class PairwiseScorer:
                     self.distance_map[(first_word, second_word)] = score
                 synsets_with_scores[i][j] = score
         return synsets_with_scores, first_indexes, second_indexes
+
+    def _get_special_score(self, first, second, first_sent=None, second_sent=None, i=None, j=None):
+        score = None
+        if first.isdigit():
+            score = float(first == second)
+        if score is None:
+            return None
+        word_scores = [score] * self.metrics_number
+        return (word_scores, None, None)
 
     def get_synset_score(self, first_word, second_word, first_synsets, second_synsets):
         if self.synset_metrics_number == 0:
@@ -328,7 +345,8 @@ if __name__ == "__main__":
     # statprof.start()
     # try:
     sents, data, targets = read_data(config["train_file"], from_parses=True)
-    data_to_work = [list(zip(*elem)) for elem in zip(*data)]
+    # data_to_work = [list(zip(*elem)) for elem in zip(*data)]
+    data_to_work = data
     data_to_scorer = list(zip(data_to_work[::2], data_to_work[1::2]))
     similarity_scores, word_scores =\
         scorer.score_sents(data_to_scorer, dump_file=config.get('train_distances_file'))
@@ -338,7 +356,8 @@ if __name__ == "__main__":
     #         statprof.display(flog, order=statprof.DisplayOrder.CUMULATIVE)
     # test
     test_sents, test_data, test_targets = read_data(config["test_file"], from_parses=True)
-    data_to_work = [list(zip(*elem)) for elem in zip(*test_data)]
+    # data_to_work = [list(zip(*elem)) for elem in zip(*test_data)]
+    data_to_work = test_data
     data_to_scorer = list(zip(data_to_work[::2], data_to_work[1::2]))
     test_similarity_scores, test_word_scores =\
         scorer.score_sents(data_to_scorer, dump_file=config.get('test_distances_file'))
