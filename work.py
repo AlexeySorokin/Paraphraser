@@ -150,6 +150,7 @@ def prettify_UD_output(s, attach_single_root=False, has_header=True):
                 line_parse[0] = str(int(line_parse[0]) + offset)
                 if line_parse[6] != '0' and line_parse[6] != "_":
                     line_parse[6] = str(int(line_parse[6]) + offset)
+            answer[0].extend(elem)
     return answer
 
 
@@ -225,8 +226,7 @@ class MixedUDPreprocessor:
             t = time()
             print("Preparing to syntax parse: {:.2f}".format(t - t_last))
             t_last = t
-            parse_sents = [list(chain.from_iterable(prettify_UD_output(
-                self.parser.process(sent), has_header=False, attach_single_root=True)))
+            parse_sents = [prettify_UD_output(self.parser.process(sent), has_header=False, attach_single_root=True)[0]
                            for sent in sents_to_parse]
             t = time()
             print("Parsing syntax: {:.2f}".format(t - t_last))
@@ -234,6 +234,8 @@ class MixedUDPreprocessor:
             parse_sents = UD_sents
         t_last = t
         answer = []
+        if isinstance(fields_to_return, str):
+            fields_to_return = [fields_to_return]
         for key in fields_to_return:
             if key == "all":
                 answer.append(parse_sents)
