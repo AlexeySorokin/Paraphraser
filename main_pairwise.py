@@ -7,9 +7,8 @@ import numpy as np
 from scipy.spatial.distance import cosine
 import statprof
 
-sys.path.append("/home/alexeysorokin/data/DeepPavlov")
+sys.path.append("/cephfs/home/sorokin/DeepPavlov")
 CONFIG_PATH = "config/DeepPavlov/morpho_ru_syntagrus_pymorphy.json"
-
 
 from deeppavlov.core.commands.infer import build_model
 from deeppavlov.models.embedders.fasttext_embedder import FasttextEmbedder
@@ -182,7 +181,7 @@ class PairwiseScorer:
             # if not os.path.exists("dump"):
             #     os.makedirs("dump")
             fout = open(dump_file, "w", encoding="utf8")
-        scores, pairwise_scores = [], []
+        scores, indexes, pairwise_scores = [], [], []
         for first, second in pairs:
             curr_pairwise_scores, first_indexes, second_indexes = self.get_scores_matrix(first, second)
             similarity_score = self.aggregate_scores([[x[0] for x in elem] for elem in curr_pairwise_scores])
@@ -203,7 +202,8 @@ class PairwiseScorer:
                     fout.write("\n")
                 fout.write("Aggregate: {:.2f}\n\n".format(similarity_score))
             scores.append(similarity_score)
-            pairwise_scores.append((first_words, second_words, curr_pairwise_scores))
+            # indexes.append((first_indexes, second_indexes))
+            pairwise_scores.append((first_indexes, second_indexes, curr_pairwise_scores))
             if len(scores) % 1000 == 0 and self.verbose:
                 print("{} elements processed".format(len(scores)))
         if self.verbose > 0 and dump_file is not None:
@@ -234,7 +234,7 @@ class PairwiseScorer:
         synsets_with_scores = [[None] * len(second_sent) for _ in first_sent]
         for i, first_elem in enumerate(first_sent):
             first_word, first_pos = first_elem[2:4]
-            first_synsets = synsets_by_lemmas[first_word]
+            first_synsets = self.synsets_by_lemmas[first_word]
             for j, second_elem in enumerate(second_sent):
                 second_word, second_pos = second_elem[2:4]
                 saved_scores = self.distance_map.get((first_word, second_word), self.default_score)
@@ -247,7 +247,7 @@ class PairwiseScorer:
                     self.distance_map[(first_word, second_word)] = special_score
                     continue
                 word_scores = self._collect_word_score(first_word, second_word)
-                second_synsets = synsets_by_lemmas[second_word]
+                second_synsets = self.synsets_by_lemmas[second_word]
                 _, score = self.get_synset_score(
                     first_word, second_word, first_synsets, second_synsets)
                 score = (word_scores + score[0],) + score[1:]
@@ -364,7 +364,7 @@ if __name__ == "__main__":
     scorer.save(config["save_file"], config["save_scores_file"])
     # scorer.save("dump/lca.out", "dump/scores.out")
     initial_threshold = analyze_scores(similarity_scores, targets, test_similarity_scores,
-                                       test_targets, verbose=config["verbose"])
+                                       test_targets, **config.get("analyze", dict()))
     if "train_analysis" in config:
         fp_file = config["train_analysis"] + "_FP"
         output_errors(sents, targets, initial_threshold,  similarity_scores,

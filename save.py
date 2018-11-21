@@ -24,7 +24,8 @@ def dump_analysis(pairs, distances, targets):
             fout.write("{}\t{}\n{}\n{}\n".format(dist, target, first, second))
 
 
-def analyze_scores(scores, targets, test_scores, test_targets, verbose=0, metric="F1"):
+def analyze_scores(scores, targets, test_scores, test_targets, 
+                   verbose=0, metric="F1"):
     scores, targets = np.array(scores), np.array(targets)
     test_scores, test_targets = np.array(test_scores), np.array(test_targets)
     m = len(scores)
@@ -35,35 +36,40 @@ def analyze_scores(scores, targets, test_scores, test_targets, verbose=0, metric
     score_levels = [scores[(m * i) // 100 - 1] for i in range(1, 101)]
     curr_score_level = 0
     TP, FN, FP, TN = 0, (targets == 1).astype("int").sum(), 0, (targets == 0).astype("int").sum()
-    best_F1, best_index = -1, -2
+    best_metric, best_index = -1, -2
     curr_test_threshold = 0
     test_TP, test_FN  = 0, (test_targets == 1).astype("int").sum()
     test_FP, test_TN = 0, (test_targets == 0).astype("int").sum()
-    # acc, test_acc = 0.0, 0.0
+    corr, test_corr = TN , test_TN
     for index, (score, target) in enumerate(zip(scores, targets)):
-        TP, FN, FP, TN = TP+target, FN-target, FP+(1-target), TN-(1-target)
+        TP, FN, FP, TN, corr = TP+target, FN-target, FP+(1-target), TN-(1-target), corr + (2 * target - 1)
         curr_F1 = TP / (TP + 0.5 * (FN + FP))
+        curr_acc = corr / len(targets)
         if index == m-1 or scores[index+1] > score:
             while curr_test_threshold < len(test_scores) and test_scores[curr_test_threshold] <= score:
                 test_target = test_targets[curr_test_threshold]
                 test_TP, test_FN = test_TP + test_target, test_FN - test_target
                 test_FP, test_TN = test_FP + (1 - test_target), test_TN - (1 - test_target)
+                test_corr += (2 * test_target - 1)
                 curr_test_threshold += 1
             curr_test_F1 = test_TP / (test_TP + 0.5 * (test_FN + test_FP))
-            if curr_F1 > best_F1:
-                best_F1, best_index, test_F1 = curr_F1, index, curr_test_F1
+            curr_test_acc = test_corr / len(test_targets)
+            curr_metric = curr_F1 if metric == "F1" else curr_acc
+            curr_test_metric = curr_test_F1 if metric == "F1" else curr_test_acc
+            if curr_metric > best_metric:
+                best_metric, best_index, test_metric = curr_metric, index, curr_test_metric
             elif verbose and best_index == index - 1:
-                print("Best F1: {:.2f}, test F1: {:.2f}, threshold: {:.3f}".format(
-                    100 * best_F1, 100 *curr_test_F1, scores[index-1]))
+                print("Best {0}: {1:.2f}, test {0}: {2:.2f}, threshold: {3:.3f}".format(
+                    metric, 100 * best_metric, 100 *curr_test_metric, scores[index-1]))
         if verbose:
             if (curr_score_level < 100 and score == score_levels[curr_score_level]
                     and (index == m-1 or scores[index+1] > score)):
-                print("threshold: {:.3f}, F1: {:.2f}, test F1: {:.2f}".format(
-                    score, 100 * curr_F1, 100 * curr_test_F1))
-                print(TP, FN, FP, TN)
+                print("threshold: {1:.3f}, {0}: {2:.2f}, test {0}: {3:.2f}".format(
+                    metric, score, 100 * curr_metric, 100 * curr_test_metric))
+                # print(TP, FN, FP, TN)
                 curr_score_level += 1
-    print("Threshold: {:.3f}, Train F1: {:.2f}, Test F1: {:.2f}".format(
-        scores[best_index], 100 * best_F1, 100 * test_F1))
+    print("Threshold: {1:.3f}, Train {0}: {2:.2f}, Test {0}: {3:.2f}".format(
+        metric, scores[best_index], 100 * best_metric, 100 * test_metric))
     return scores[best_index]
 
 

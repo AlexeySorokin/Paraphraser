@@ -107,7 +107,6 @@ class SyntaxTreeGraph:
                 curr_indexes.extend(self.edges[index])
         return answer
 
-
     def _can_be_direct_object(self, index, dep):
         pos, tag = self.tags[index - 1]
         if pos not in ["NOUN", "PROPN"]:
@@ -119,7 +118,37 @@ class SyntaxTreeGraph:
             return False
         case = tag.get("Case")
         return case in ["Nom", "Acc", "Gen"]
+    
+    def make_branches(self, d=3):
+        answer = [[]] + [None] * self.nodes_number
+        depths = [0] * self.nodes_number
+        verb_indexes = self._get_verb_indexes()
+        is_passive = (self.tags[self.heads - 1][-1].get("Voice") == "Pass")
+        queue = [(0, True, False)]
+        while len(queue) > 0:
+            parent_index, is_verb_index, is_passive = parents_for_verbs.pop()
+            curr_dep_data = self.edges[parent_index], self.deps[parent_index]
+            for child_index, dep in zip(*curr_dep_data):
+                pos, tag = self.tags[child_index - 1]
+                if is_verb_index:
+                    is_child_verb = (dep in ["root", "xcomp"] and is_verb(pos, tag))
+                    is_child_passive = is_passive or (is_child_verb and tag.get("Voice") == "Pass")
+                    if dep == "nsubj":
+                        child_answer = ["nsubj"] if not is_passive else ["nsubj:pass"]
+                    elif dep in ["nsubj:pass", "obj", "obl"]:
+                        child_answer = [dep]
+                    elif is_child_verb:
+                        child_answer = [dep]
+                    else:
+                        child_answer = answer[parent_index] + [dep]
+                else:
+                    is_child_verb, is_child_passive = False, is_passive
+                    child_answer = answer[parent_index] + [dep]
+                queue.append((child_index, is_child_verb, is_child_passive))
+                answer[child_index] = child_answer
+        return answer[1:]
 
+    
 def prettify_UD_output(s, attach_single_root=False, has_header=True):
     lines = s.split("\n")
     start_state = 0 if has_header else 1

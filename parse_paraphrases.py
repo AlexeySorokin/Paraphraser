@@ -2,7 +2,7 @@ import sys
 import os
 
 from ufal_udpipe import Model
-sys.path.append("/home/alexeysorokin/data/DeepPavlov")
+sys.path.append("/cephfs/home/sorokin/DeepPavlov")
 from deeppavlov.deep import find_config
 from deeppavlov.core.commands.infer import build_model
 
@@ -11,8 +11,8 @@ from work import MixedUDPreprocessor
 
 PARAPHRASES_DIR = "paraphraser"
 CONFIG_PATH = "config/DeepPavlov/morpho_ru_syntagrus_pymorphy.json"
-INFILES = ["paraphrases_train.xml"]
-OUTFILES = ["parsed_paraphrases_train_1411.xml"]
+INFILES = ["paraphrases_gold.xml"]
+OUTFILES = ["parsed_paraphrases_gold.xml"]
 
 if __name__ == "__main__":
     tagger = build_model(CONFIG_PATH)
