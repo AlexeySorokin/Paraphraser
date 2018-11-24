@@ -12,6 +12,40 @@ from keras.callbacks import EarlyStopping
 
 import tensorflow as tf
 
+
+def masked_mean(a, mask=None, axis=None):
+    if mask is None:
+        mask = kb.ones_like(a)
+    answer = kb.sum(a * mask, axis=axis) / kb.sum(mask, axis=axis)
+    return answer
+
+
+class AttentionWeightsLayer(kl.Layer):
+    """
+    Computes attention weights between two sentences, represented as matrixes
+    """
+    def __init__(self, **kwargs):
+        super(AttentionWeightsLayer, self).__init__(**kwargs)
+
+    def build(self, input_shape):
+        assert len(input_shape) in [2, 3]
+        assert input_shape[0][-1] == input_shape[1][-1]
+        if len(input_shape) == 3:
+            assert input_shape[2][1] == input_shape[0][1]
+            assert input_shape[2][2] == input_shape[1][1]
+        self.built = True
+        super(AttentionWeightsLayer, self).build(input_shape)
+
+    def call(self, inputs, **kwargs):
+        first, second = inputs[:2]
+        similarities = kb.batch_dot(first, kb.permute_dimensions(second, [0, 2, 1]))
+        probs = kb.softmax(similarities)
+        return probs
+
+    def compute_output_shape(self, input_shape):
+        return [(None, input_shape[0][1], input_shape[1][1])]
+
+
 class RandomizedIdentityInitializer:
 
     def __init__(self, dim, output_dim=None, identity_dim=None,

@@ -7,8 +7,9 @@ import numpy as np
 from scipy.spatial.distance import cosine
 import statprof
 
-sys.path.append("/cephfs/home/sorokin/DeepPavlov")
-CONFIG_PATH = "config/DeepPavlov/morpho_ru_syntagrus_pymorphy.json"
+# sys.path.append("/home/alexeysorokin/data/DeepPavlov")
+MORPHO_CONFIG_PATH = "config/DeepPavlov/morpho_ru_syntagrus_pymorphy.json"
+CONFIG_PATH = "config/pairwise/config_fasttext.json"
 
 from deeppavlov.core.commands.infer import build_model
 from deeppavlov.models.embedders.fasttext_embedder import FasttextEmbedder
@@ -19,9 +20,7 @@ from read import *
 from work import MixedUDPreprocessor
 from save import analyze_scores, output_errors
 
-tagger = build_model(CONFIG_PATH)
-ud_model = udModel.load("russian-syntagrus-ud-2.0-170801.udpipe")
-ud_processor = MixedUDPreprocessor(tagger=tagger, model=ud_model)
+
 
 
 POS_TO_WORK = ["PROPN", "NOUN", "VERB", "ADJ"]
@@ -203,7 +202,7 @@ class PairwiseScorer:
                 fout.write("Aggregate: {:.2f}\n\n".format(similarity_score))
             scores.append(similarity_score)
             # indexes.append((first_indexes, second_indexes))
-            pairwise_scores.append((first_indexes, second_indexes, curr_pairwise_scores))
+            pairwise_scores.append((first_indexes, second_indexes, first_words, second_words, curr_pairwise_scores))
             if len(scores) % 1000 == 0 and self.verbose:
                 print("{} elements processed".format(len(scores)))
         if self.verbose > 0 and dump_file is not None:
@@ -330,6 +329,10 @@ def read_embedders(data):
 
 
 if __name__ == "__main__":
+    tagger = build_model(MORPHO_CONFIG_PATH)
+    ud_model = udModel.load("russian-syntagrus-ud-2.0-170801.udpipe")
+    ud_processor = MixedUDPreprocessor(tagger=tagger, model=ud_model)
+
     config = read_config(sys.argv[1])
     synsets, synsets_encoding, graph, derivates = make_graph(config["relations_file"])
     synsets_by_lemmas, lemmas_by_synsets = collect_synsets_for_lemmas(config["senses_file"])

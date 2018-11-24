@@ -1,8 +1,8 @@
 {
-  "relations_file": "ruthes-lite-2/relations_all.xml",
-  "senses_file": "ruthes-lite-2/senses_all.xml",
+  "relations_file": "ruthes-lite/relations_all.xml",
+  "senses_file": "ruthes-lite/senses_all.xml",
   "use_derivates": false,
-  "embedders": [["/cephfs/home/sorokin/data/embeddings/ft_native_300_ru_wiki_lenta_lower_case.bin",
+  "embedders": [["/home/alexeysorokin/data/Data/DeepPavlov Embeddings/ft_native_300_ru_wiki_lenta_lower_case.bin",
                  300, "fasttext"]],
   "metrics": [],
   "load_scores_file": "dump/scores_fasttext",

@@ -119,14 +119,12 @@ class SyntaxTreeGraph:
         case = tag.get("Case")
         return case in ["Nom", "Acc", "Gen"]
     
-    def make_branches(self, d=3):
+    def make_branches(self):
         answer = [[]] + [None] * self.nodes_number
         depths = [0] * self.nodes_number
-        verb_indexes = self._get_verb_indexes()
-        is_passive = (self.tags[self.heads - 1][-1].get("Voice") == "Pass")
         queue = [(0, True, False)]
         while len(queue) > 0:
-            parent_index, is_verb_index, is_passive = parents_for_verbs.pop()
+            parent_index, is_verb_index, is_passive = queue.pop()
             curr_dep_data = self.edges[parent_index], self.deps[parent_index]
             for child_index, dep in zip(*curr_dep_data):
                 pos, tag = self.tags[child_index - 1]

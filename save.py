@@ -84,7 +84,7 @@ def output_errors(sents, targets, threshold, scores, word_scores,
                 break
             if targets[index] == int(reverse):
                 fout.write("\n".join(sents[index]) + "\n")
-                first_words, second_words, curr_pairwise_scores = word_scores[index]
+                _, _, first_words, second_words, curr_pairwise_scores = word_scores[index]
                 first_length = max([len(x) for x in first_words])
                 column_lengths = [max(len(x), 5 * metrics_number) for x in second_words]
                 fout.write("{:<{width}}".format("", width=first_length + 2))
