@@ -90,11 +90,13 @@ UD_MODES = ["all", "word", "lemma", "pos", "feats"]
 def make_data(infile, embedder, return_weights=False, return_indexes=False,
               ud_processor=None, use_svo=False, from_parses=False, save_file=None):
     pairs, data, targets = read_data(infile, from_parses, save_file, ud_processor=ud_processor)
-    parses, words, lemmas, tags = data
     if use_svo:
         sent_embeddings = embedder(
-            parses, return_weights=return_weights, return_indexes=return_indexes)
+            data, return_weights=return_weights, return_indexes=return_indexes)
     else:
+        # parses, words, lemmas, tags = data
+        lemmas = [[elem[2] for elem in sent] for sent in data]
+        tags = [[elem[3] for elem in sent] for sent in data]
         sent_embeddings = embedder(lemmas, tags, return_weights=return_weights)
     if isinstance(sent_embeddings, tuple):
         X = tuple([[elem[::2], elem[1::2]] for elem in sent_embeddings])

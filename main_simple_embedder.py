@@ -8,7 +8,7 @@ from keras.callbacks import *
 from ufal_udpipe import Model
 from deeppavlov.models.embedders.fasttext_embedder import FasttextEmbedder
 from deeppavlov.deep import find_config
-from deeppavlov.core.commands.infer import build_model_from_config
+from deeppavlov.core.commands.infer import build_model
 
 from read import *
 from read import make_data
@@ -27,11 +27,11 @@ EMBEDDINGS_DIM = 300
 COUNTS_PATH = "/home/alexeysorokin/data/Data/frequencies/Taiga_freq_lemmas.txt"
 # COUNTS_PATH = "/home/alexeysorokin/data/Data/frequencies/counts_wiki_lenta_lem.txt"
 # COUNTS_PATH = "../data/frequencies/Taiga_freq_lemmas.txt"
-CONFIG_PATH = ["config/config.json"]
+# CONFIG_PATH = ["config/config_base.json"]
+CONFIG_PATH = ["config/config_base.json", "config/config_pos.json",
+               "config/config_idf_1000_10.json", "config/config_idf_1000_10_pos.json"]
 TRAIN_SAVE_PATH = "paraphraser/parsed_paraphrases_train.xml"
 TEST_SAVE_PATH = "paraphraser/parsed_paraphrases_gold.xml"
-
-
 # import tensorflow as tf
 # import keras.backend.tensorflow_backend as kbt
 # config = tf.ConfigProto()
@@ -40,8 +40,6 @@ TEST_SAVE_PATH = "paraphraser/parsed_paraphrases_gold.xml"
 
 
 def make_train_params(params):
-    if params is None:
-        return dict()
     params = params.copy()
     callbacks, save_path = [], None
     if "early_stopping" in params:
@@ -64,7 +62,7 @@ def reshape_svo_embeddings(data):
     return np.sum(np.reshape(data, (data.shape[0], 3, -1)), axis=1)
     
     
-SHORT_OPTS = "S:T:pn:fo:e"
+SHORT_OPTS = "S:T:tpn:N:fo:e"
 QUALITY_FORMAT_STRING = "P:{:.2f} R:{:.2f} F1:{:.2f} A:{:.2f}"
 
 if __name__ == "__main__":
@@ -73,23 +71,27 @@ if __name__ == "__main__":
     np.random.seed(189)
     opts, args = getopt.getopt(sys.argv[1:], SHORT_OPTS)
     
-    vectors_save_file, targets_save_file, use_svo = None, None, False
+    vectors_save_file, targets_save_file, use_svo, train_network = None, None, False, True
     from_parses = False
-    outfile, output_ensemble_scores = None, False
-    trials = 1
+    outfiles, output_ensemble_scores = None, False
+    trials, n = 1, None
     for opt, val in opts:
         if opt == "-S":
             vectors_save_file = val
         elif opt == "-T":
             targets_save_file = val
+        elif opt == "-t":
+            train_network = False
         elif opt == "-p":
             use_svo = True
         elif opt == "-n":
             trials = int(val)
+        elif opt == "-N":
+            n = int(val)
         elif opt == "-f":
             from_parses = True
         elif opt == "-o":
-            outfile = val
+            outfiles = val.split(",")
         elif opt == "-e":
             output_ensemble_scores = True
 
@@ -100,21 +102,27 @@ if __name__ == "__main__":
 
 
     if not from_parses:
-        tagger = build_model_from_config(find_config("morpho_ru_syntagrus_train_pymorphy"))
+        tagger = build_model(find_config("morpho_ru_syntagrus_train_pymorphy"))
         print("Tagger built")
         ud_model = Model.load("russian-syntagrus-ud-2.0-170801.udpipe")
         print("UD Model loaded")
         ud_processor = MixedUDPreprocessor(ud_model, tagger)
     else:
         ud_processor = None
-    for config_path in CONFIG_PATH:
+    if outfiles is None:
+        outfiles = [None] * len(CONFIG_PATH)
+    answer = []
+    for config_path, outfile in zip(CONFIG_PATH, outfiles):
+        if outfile in ["", "None"]:
+            outfile = None
         # print("{:<24}".format(config_path.split("/")[-1]), end="\t")
+
         with open(config_path, "r", encoding="utf8") as fin:
             config_params = json.load(fin)
         embedder_params = config_params.get("embedder", dict())
         if "tag_weights" in embedder_params:
-            tag_weights = embedder_params["tag_weights"][1]
-            tag_weights = {tuple(key.split("_")): value for key, value in tag_weights.items()}
+            tag_weights = embedder_params["tag_weights"]
+            tag_weights[1] = {tuple(key.split("_")): value for key, value in tag_weights[1].items()}
         Embedder = SVOFreqPosEmbedder if use_svo else FreqPosEmbedder
         embedder = Embedder(word_embedder, word_counts, **embedder_params)
 
@@ -157,43 +165,74 @@ if __name__ == "__main__":
             for_distances = X_test
         test_distances = np.array([cosine(first, second) 
                                    for first, second in zip(*for_distances)])
-        initial_threshold = analyze_scores(distances, y_train, test_distances, y_test)
-        
-        network_params = config_params.get("network", dict())
-        
-        quality = np.zeros(shape=(trials, 4), dtype="float32")
-        test_scores = np.zeros(shape=(trials, len(X_test[0])), dtype="float32")
-        for i in range(trials):
-            indexes = np.arange(len(y_train), dtype=int)
-            np.random.shuffle(indexes)
-            # print(indexes[:10])
-            X_train, y_train = [X_train[0][indexes], X_train[1][indexes]], np.array(y_train)[indexes]
+        if n == -1:
+            initial_threshold = analyze_scores(distances, y_train, test_distances, y_test, metric="accuracy")
 
-            network_params["dim"] = network_params.get("dim", EMBEDDINGS_DIM)
-            network = NetworkBuilder(use_svo=use_svo,
-                                     initial_threshold=initial_threshold,
-                                     **network_params).build()
-            train_params, save_path = make_train_params(config_params.get("train"))
-            network.fit(X_train, y_train, **train_params)
-            network.load_weights(save_path)
-            curr_scores = network.predict(X_test)[:,0]
-            quality[i] = measure_quality(y_test, curr_scores)
-            test_scores[i] = curr_scores
-            print(QUALITY_FORMAT_STRING.format(*(100 * quality[i])))
-        print("")
-        if trials > 1:
-            for i in range(trials):
-                print(QUALITY_FORMAT_STRING.format(*(100 * quality[i])))
-        print(("Average scores. "+ QUALITY_FORMAT_STRING).format(*(100 * quality.mean(axis=0))))
-        ensemble_scores = np.mean(test_scores, axis=0)
-        if trials % 2 == 0:
-            median_scores = np.sort(test_scores, axis=0)[(trials // 2 - 1) : (trials // 2 + 1)].mean(axis=0)
+        if not train_network:
+            if n != -1:
+                qualities, ensemble_scores, test_scores = [], [], []
+                for i in range(trials):
+                    indexes = np.arange(len(y_train), dtype=int)
+                    np.random.shuffle(indexes)
+                    indexes = indexes[:n]
+                    curr_distances = [distances[j] for j in indexes]
+                    curr_y_train = np.array(y_train)[indexes]
+                    initial_threshold = analyze_scores(curr_distances, curr_y_train, test_distances, y_test, metric="accuracy")
+                    qualities.append(measure_quality(y_test, initial_threshold - test_distances))
+                    ensemble_scores.append(initial_threshold - test_distances)
+                    test_scores.append(test_distances)
+                ensemble_scores = np.array(ensemble_scores)
+                test_scores = np.array(test_scores)
+                quality = np.mean(qualities, axis=0)
+            else:
+                quality = measure_quality(y_test, initial_threshold - test_distances)
+                ensemble_scores, test_scores = initial_threshold - test_distances, test_distances[None,:]
+            answer.append(("{:<24}".format(config_path.split("/")[-1]), 100 * quality))
+            # print(("Scores. " + QUALITY_FORMAT_STRING).format(*(100 * quality)))
         else:
-            median_scores = np.sort(test_scores, axis=0)[trials // 2]
-        ensemble_quality = np.array(measure_quality(y_test, ensemble_scores))
-        median_quality = np.array(measure_quality(y_test, median_scores))
-        print(("Ensemble scores. "+ QUALITY_FORMAT_STRING).format(*(100 * ensemble_quality)))
-        print(("Median scores. "+ QUALITY_FORMAT_STRING).format(*(100 * median_quality)))
+            network_params = config_params.get("network", dict())
+
+            quality = np.zeros(shape=(trials, 4), dtype="float32")
+            test_scores = np.zeros(shape=(trials, len(X_test[0])), dtype="float32")
+            for i in range(trials):
+                indexes = np.arange(len(y_train), dtype=int)
+                np.random.shuffle(indexes)
+                if n != -1:
+                    indexes = indexes[:n]
+                    curr_distances = [distances[j] for j in indexes]
+                    curr_y_train = np.array(y_train)[indexes]
+                    initial_threshold = analyze_scores(curr_distances, curr_y_train, test_distances, y_test, metric="accuracy")
+
+                # print(indexes[:10])
+                X_train, y_train = [X_train[0][indexes], X_train[1][indexes]], np.array(y_train)[indexes]
+
+                network_params["dim"] = network_params.get("dim", EMBEDDINGS_DIM)
+                network = NetworkBuilder(use_svo=use_svo,
+                                         initial_threshold=initial_threshold,
+                                         **network_params).build()
+                train_params, save_path = make_train_params(config_params.get("train", dict()))
+                network.fit(X_train, y_train, **train_params)
+                network.load_weights(save_path)
+                curr_scores = network.predict(X_test)[:,0]
+                quality[i] = measure_quality(y_test, curr_scores)
+                test_scores[i] = curr_scores
+                print(QUALITY_FORMAT_STRING.format(*(100 * quality[i])))
+            print("")
+            if trials > 1:
+                for i in range(trials):
+                    print(QUALITY_FORMAT_STRING.format(*(100 * quality[i])))
+            print(("Average scores. "+ QUALITY_FORMAT_STRING).format(*(100 * quality.mean(axis=0))))
+            ensemble_scores = np.mean(test_scores, axis=0)
+            if trials % 2 == 0:
+                median_scores = np.sort(test_scores, axis=0)[(trials // 2 - 1) : (trials // 2 + 1)].mean(axis=0)
+            else:
+                median_scores = np.sort(test_scores, axis=0)[trials // 2]
+            ensemble_quality = np.array(measure_quality(y_test, ensemble_scores))
+            median_quality = np.array(measure_quality(y_test, median_scores))
+            answer.append(("{:<24}".format(config_path.split("/")[-1]),
+                           100 * quality.mean(axis=0), 100 * ensemble_quality, 100 * median_quality))
+            # print(("Ensemble scores. "+ QUALITY_FORMAT_STRING).format(*(100 * ensemble_quality)))
+            # print(("Median scores. "+ QUALITY_FORMAT_STRING).format(*(100 * median_quality)))
         if outfile is not None:
             scores_to_output = ensemble_scores if output_ensemble_scores else median_scores
             with open(outfile, "w", encoding="utf8") as fout:
@@ -209,6 +248,11 @@ if __name__ == "__main__":
                             fout.write("\t".join(["{}".format(x) for x in indexes_test[0][i]]) + "\n")
                             fout.write("\t".join(["{}".format(x) for x in indexes_test[1][i]]) + "\n")
                         fout.write("\n")
+    for elem in answer:
+        print(elem[0])
+        for quality in elem[1:]:
+            print(QUALITY_FORMAT_STRING.format(*quality))
+        print("")
 
 # dump_analysis(pairs_train, distances, y_train)
 

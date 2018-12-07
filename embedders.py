@@ -1,4 +1,5 @@
 import numpy as np
+from collections import defaultdict
 
 from work import SyntaxTreeGraph
 
@@ -15,7 +16,7 @@ class BasicFreqPosEmbedder:
         self.idf_base_count = idf_base_count
         self.min_idf_weight = min_idf_weight
         self.log_base = log_base
-        self.tag_weights = tag_weights
+        self.tag_weights = tag_weights or [defaultdict(lambda: 1.0), dict()]
         self.batch_size = batch_size
 
     def __call__(self, *args, **kwargs):
@@ -39,9 +40,12 @@ class BasicFreqPosEmbedder:
         return weight
 
     def _get_tag_weight(self, tag, word=None):
-        weight = self.tag_weights[1].get((word, tag), -1)
-        if weight < 0:
-            weight = self.tag_weights[0].get(tag, 0.0)
+        weight = self.tag_weights[1].get((word, tag))
+        if weight is None:
+            try:
+                weight = self.tag_weights[0][tag]
+            except KeyError:
+                weight = 0.0
         return weight
 
 
@@ -89,6 +93,7 @@ class SVOFreqPosEmbedder(BasicFreqPosEmbedder):
                 word_weights *= self.make_tag_weights(pos_sent, words)
                 svo_indexes = [self.SVO_INDEXES[key] 
                                for key in SyntaxTreeGraph(parse).make_subject_types()]
+                svo_indexes = svo_indexes
                 for weight, index, embedding in zip(word_weights, svo_indexes, word_embeddings[i]):
                     first_col = self.word_embedder.dim * index
                     last_col = self.word_embedder.dim * (index + 1)
